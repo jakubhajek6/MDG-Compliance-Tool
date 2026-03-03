@@ -18,6 +18,7 @@ from db.database import (
     get_unprocessed_changes, mark_change_processed, log_audit,
 )
 from modules.auth import require_login
+from modules.sidebar import render_sidebar
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Monitoring", page_icon="👁️", layout="wide")
@@ -36,6 +37,7 @@ div.stProgress > div > div {{ background-color: {PRIMARY} !important; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+render_sidebar()
 
 st.markdown('<div class="breadcrumb">Domů / Monitoring změn v OR</div>', unsafe_allow_html=True)
 st.markdown("## 👁️ Monitoring změn v OR")

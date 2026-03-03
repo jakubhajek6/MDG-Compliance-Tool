@@ -27,6 +27,7 @@ from importer.graphviz_render import build_graphviz_from_nodelines_bfs
 from modules.ares_api import fetch_ares_vr, extract_company_info
 from db.database import init_db, log_audit, save_or_snapshot
 from modules.auth import require_login
+from modules.sidebar import render_sidebar
 
 # ===== PATH pro Graphviz =====
 for p in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/opt/local/bin", "/snap/bin"):
@@ -54,6 +55,7 @@ a, a:visited {{ color: {PRIMARY}; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+render_sidebar()
 
 # ===== DB =====
 init_db()

@@ -18,6 +18,7 @@ from db.database import (
     get_clients, add_client,
 )
 from modules.auth import require_login
+from modules.sidebar import render_sidebar
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Riziková klasifikace", page_icon="⚖️", layout="wide")
@@ -38,6 +39,7 @@ div.stProgress > div > div {{ background-color: {PRIMARY} !important; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+render_sidebar()
 
 st.markdown('<div class="breadcrumb">Domů / Riziková klasifikace</div>', unsafe_allow_html=True)
 st.markdown("## ⚖️ Riziková klasifikace klienta (ZAML)")

@@ -16,6 +16,7 @@ from modules.docgen import (
 )
 from db.database import init_db, log_audit
 from modules.auth import require_login
+from modules.sidebar import render_sidebar
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Smlouvy", page_icon="📝", layout="wide")
@@ -34,6 +35,7 @@ div.stProgress > div > div {{ background-color: {PRIMARY} !important; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+render_sidebar()
 
 st.markdown('<div class="breadcrumb">Domů / Návrh smluvní dokumentace</div>', unsafe_allow_html=True)
 st.markdown("## 📝 Návrh smluvní dokumentace")

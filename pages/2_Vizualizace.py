@@ -18,6 +18,7 @@ from modules.ares_api import fetch_ares_vr, fetch_ares_basic, extract_company_in
 from modules.justice_scraper import search_person_engagements, search_company_persons
 from db.database import init_db, get_connection, log_audit
 from modules.auth import require_login
+from modules.sidebar import render_sidebar
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Vizualizace", page_icon="🔗", layout="wide")
@@ -35,6 +36,7 @@ div.stProgress > div > div {{ background-color: {PRIMARY} !important; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+render_sidebar()
 
 st.markdown('<div class="breadcrumb">Domů / Vizualizace vztahů</div>', unsafe_allow_html=True)
 st.markdown("## 🔗 Vizualizace vztahů")

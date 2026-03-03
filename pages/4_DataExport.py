@@ -13,6 +13,7 @@ import streamlit as st
 from modules.ares_api import fetch_ares_basic, fetch_ares_vr, extract_company_info, norm_ico
 from db.database import init_db, log_audit, save_or_snapshot
 from modules.auth import require_login
+from modules.sidebar import render_sidebar
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Export dat", page_icon="📊", layout="wide")
@@ -31,6 +32,7 @@ div.stProgress > div > div {{ background-color: {PRIMARY} !important; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
+render_sidebar()
 
 # ===== HEADER =====
 st.markdown('<div class="breadcrumb">Domů / Export dat pro MasT a MT</div>', unsafe_allow_html=True)

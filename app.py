@@ -8,6 +8,7 @@ import streamlit as st
 from pathlib import Path
 from db.database import init_db
 from modules.docgen import create_sample_templates
+from modules.sidebar import render_sidebar
 
 # ===== PAGE CONFIG =====
 st.set_page_config(
@@ -118,84 +119,63 @@ def check_password() -> bool:
 if not check_password():
     st.stop()
 
+render_sidebar()
 
-# ===== SIDEBAR =====
-with st.sidebar:
-    # ── Logo ──────────────────────────────────────────────────────────────────
-    logo_path = Path("assets/logo.png")
-    if logo_path.exists():
-        st.image(str(logo_path), use_container_width=True)
-    else:
-        st.markdown(
-            f'<h2 style="color:{PRIMARY}; margin:0;">MDG</h2>',
-            unsafe_allow_html=True,
-        )
+# ===== DASHBOARD =====
+import pandas as pd
+from db.database import get_unprocessed_changes, get_clients, get_aml_checks
+from datetime import date
 
-    st.markdown("---")
-
-    # ── Navigace ──────────────────────────────────────────────────────────────
-    st.page_link("app.py",                 label="🏠 Domů")
-    st.page_link("pages/1_ESM.py",         label="📋 ESM – Evidence skutečných majitelů")
-    st.page_link("pages/2_Vizualizace.py", label="🔗 Vizualizace vztahů")
-    st.page_link("pages/3_AML.py",         label="🔍 AML kontroly")
-    st.page_link("pages/4_DataExport.py",  label="📊 Export dat pro MasT a MT")
-    st.page_link("pages/5_Smlouvy.py",     label="📝 Návrh smluvní dokumentace")
-    st.page_link("pages/6_Monitoring.py",  label="👁️ Monitoring změn v OR")
-    st.page_link("pages/7_Riziko.py",      label="⚖️ Riziková klasifikace")
-
-    st.markdown("---")
-
-    # ── Patička sidebaru ──────────────────────────────────────────────────────
-    st.markdown(
-        '<div class="small-muted">MDG Compliance Tool v1.0</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("🚪 Odhlásit", use_container_width=True):
-        st.session_state["authenticated"] = False
-        st.rerun()
-
-
-# ===== HLAVNÍ STRÁNKA – DASHBOARD =====
 st.markdown('<div class="breadcrumb">Domů</div>', unsafe_allow_html=True)
-st.markdown("## MDG Compliance Tool")
-st.markdown("Vítejte v interním compliance nástroji kanceláře MDG.")
+st.markdown("## 📊 Přehled stavu")
+st.markdown("---")
+
+# ── Načtení dat ────────────────────────────────────────────────────────────────
+client_list = get_clients()
+or_changes  = get_unprocessed_changes()
+aml_all     = get_aml_checks(limit=500)
+
+# Counts for KPIs
+aml_red   = [c for c in aml_all if str(c.get("result_status", "")).upper() in ("RED", "ČERVENÁ", "POZOR")]
+aml_today = [c for c in aml_all if c.get("check_date", "").startswith(str(date.today()))]
+
+# ── KPI metriky ────────────────────────────────────────────────────────────────
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
+with kpi1:
+    st.metric("Sledovaní klienti", len(client_list))
+with kpi2:
+    st.metric("⚠️ Nezpracované změny OR" if or_changes else "Nezpracované změny OR", len(or_changes))
+with kpi3:
+    st.metric("AML kontroly dnes", len(aml_today))
+with kpi4:
+    st.metric("🚨 Rizikové výsledky" if aml_red else "Rizikové výsledky", len(aml_red))
 
 st.markdown("---")
 
-# Rychlý přehled
-col1, col2, col3, col4 = st.columns(4)
+col_left, col_right = st.columns(2)
 
-with col1:
-    st.markdown("### 📋 ESM")
-    st.markdown("Evidence skutečných majitelů – rozkrytí vlastnické struktury přes ARES.")
-    if st.button("Otevřít ESM", key="dash_esm"):
-        st.switch_page("pages/1_ESM.py")
+# ── Nezpracované změny OR ──────────────────────────────────────────────────────
+with col_left:
+    st.subheader("👁️ Nezpracované změny v OR")
+    if not or_changes:
+        st.success("Všechny změny zpracovány.")
+    else:
+        df_changes = pd.DataFrame(or_changes[:10])[["ico", "detected_date", "change_type", "old_value", "new_value"]]
+        df_changes.columns = ["IČO", "Datum", "Typ změny", "Původní hodnota", "Nová hodnota"]
+        st.dataframe(df_changes, use_container_width=True, hide_index=True)
+        if st.button("→ Přejít do Monitoringu", key="dash_to_monitoring"):
+            st.switch_page("pages/6_Monitoring.py")
 
-with col2:
-    st.markdown("### 🔍 AML")
-    st.markdown("Automatická AML prověrka – sankční seznamy, PEP, insolvence.")
-    if st.button("Otevřít AML", key="dash_aml"):
-        st.switch_page("pages/3_AML.py")
+# ── Poslední AML kontroly ──────────────────────────────────────────────────────
+with col_right:
+    st.subheader("🔍 Posledních 5 AML kontrol")
+    if not aml_all:
+        st.info("Zatím nebyly provedeny žádné AML kontroly.")
+    else:
+        df_aml = pd.DataFrame(aml_all[:5])[["entity_name", "ico", "check_date", "result_status"]]
+        df_aml.columns = ["Entita", "IČO", "Datum kontroly", "Výsledek"]
+        st.dataframe(df_aml, use_container_width=True, hide_index=True)
+        if st.button("→ Přejít do AML", key="dash_to_aml"):
+            st.switch_page("pages/3_AML.py")
 
-with col3:
-    st.markdown("### 📊 Data Export")
-    st.markdown("Export dat z ARES/OR do formátu pro MasT a Macrtime.")
-    if st.button("Otevřít Export", key="dash_export"):
-        st.switch_page("pages/4_DataExport.py")
-
-with col4:
-    st.markdown("### ⚖️ Riziko")
-    st.markdown("Riziková klasifikace klienta dle ZAML §13.")
-    if st.button("Otevřít Riziko", key="dash_risk"):
-        st.switch_page("pages/7_Riziko.py")
-
-st.markdown("---")
-
-# Notifikace – nezpracované změny
-from db.database import get_unprocessed_changes, get_clients
-changes = get_unprocessed_changes()
-if changes:
-    st.warning(f"👁️ **{len(changes)}** nezpracovaných změn v OR – [přejít do Monitoringu](pages/6_Monitoring.py)")
-
-clients = get_clients()
-st.info(f"Sledovaných klientů: **{len(clients)}**")
