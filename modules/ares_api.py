@@ -245,18 +245,49 @@ def extract_company_info(
         if not oj.get("datumVymazu"):
             info["nazev"] = oj.get("hodnota", "") or ""
 
-    # Datum vzniku/zápisu
-    info["datum_vzniku"] = zaznam.get("datumVzniku", "") or ""
-    info["datum_zapisu"] = zaznam.get("datumZapisu", "") or ""
+    # Datum vzniku/zápisu.
+    # Pozor: datumVzniku může v OR chybět (je vyplněno jen v některých typech zápisů).
+    # Primárně použijeme datumVzniku, jako fallback datumZapisu z VR, nebo hodnotu z RES.
+    vr_datum_vzniku = zaznam.get("datumVzniku", "") or ""
+    vr_datum_zapisu = zaznam.get("datumZapisu", "") or ""
+    info["datum_zapisu"] = vr_datum_zapisu
+    if vr_datum_vzniku:
+        info["datum_vzniku"] = vr_datum_vzniku
+    elif vr_datum_zapisu:
+        # datumZapisu v OR odpovídá datu vzniku (zápis do obchodního rejstříku = vznik)
+        info["datum_vzniku"] = vr_datum_zapisu
+    # Pokud VR ani jedno neobsahuje, ponecháme hodnotu nastavenou z RES výše
 
-    # Předmět podnikání
-    predmety = []
-    for pp in (zaznam.get("predmetyPodnikani") or []):
-        if not pp.get("datumVymazu"):
-            for p in (pp.get("predmetPodnikani") or []):
-                if not p.get("datumVymazu"):
-                    predmety.append(p.get("hodnota", ""))
+    # Předmět podnikání.
+    # ARES VR vrací předměty novou cestou: zaznam["cinnosti"]["predmetPodnikani"][]
+    # Starší/alternativní struktura: zaznam["predmetyPodnikani"][*]["predmetPodnikani"][]
+    predmety: list[str] = []
+    cinnosti = zaznam.get("cinnosti") or {}
+    pp_list = cinnosti.get("predmetPodnikani") or []
+    if pp_list:
+        # Nová struktura – každý prvek je přímý objekt {"hodnota": str, ...}
+        for p in pp_list:
+            if not p.get("datumVymazu"):
+                val = p.get("hodnota", "") or ""
+                if val:
+                    predmety.append(val)
+    else:
+        # Stará/záložní struktura – dvouúrovňové zanořen
+        for pp in (zaznam.get("predmetyPodnikani") or []):
+            if not pp.get("datumVymazu"):
+                for p in (pp.get("predmetPodnikani") or []):
+                    if not p.get("datumVymazu"):
+                        val = p.get("hodnota", "") or ""
+                        if val:
+                            predmety.append(val)
     info["predmet_podnikani"] = "; ".join(predmety[:5])
+    # Připojíme převažující CZ-NACE z RES jako doplnění pod předmět podnikání
+    if info.get("nace_prevazujici"):
+        nace_str = f"Převažující CZ-NACE: {info['nace_prevazujici']}"
+        if info["predmet_podnikani"]:
+            info["predmet_podnikani"] += f"; {nace_str}"
+        else:
+            info["predmet_podnikani"] = nace_str
 
     # Základní kapitál
     for zk in (zaznam.get("zakladniKapital") or []):
