@@ -88,7 +88,9 @@ def extract_company_info(vr_data: dict, basic_data: Optional[dict] = None) -> di
         info["sidlo_mesto"] = sidlo.get("nazevObce", "") or ""
         info["sidlo_psc"] = str(sidlo.get("psc", "") or "")
         info["sidlo_stat"] = sidlo.get("nazevStatu", "Česká republika") or "Česká republika"
-        info["pravni_forma"] = basic_data.get("pravniForma", {}).get("nazev", "") or ""
+        # pravniForma může přijít buď jako string (nový endpoint) nebo jako objekt {"nazev": ...}
+        pf = basic_data.get("pravniForma") or ""
+        info["pravni_forma"] = pf.get("nazev", "") if isinstance(pf, dict) else str(pf)
         info["datova_schranka"] = _extract_ds(basic_data)
 
         nace_list = basic_data.get("czNace") or []
@@ -188,8 +190,11 @@ def _extract_ds(basic_data: dict) -> str:
     """Extrahuje ID datové schránky."""
     ds_list = basic_data.get("datoveSchranky") or []
     if ds_list:
-        return ds_list[0].get("idDs", "") or ds_list[0] if isinstance(ds_list[0], str) else ""
-    czds = basic_data.get("czNace") or []
+        item = ds_list[0]
+        # Endpoint může vrátit seznam stringů nebo objektů {idDs: ...}
+        if isinstance(item, dict):
+            return item.get("idDs", "") or ""
+        return str(item)
     return ""
 
 
