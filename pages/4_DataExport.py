@@ -20,7 +20,7 @@ st.set_page_config(page_title="MDG – Export dat", page_icon="📊", layout="wi
 init_db()
 require_login()
 
-PRIMARY = "#1B3A6B"
+PRIMARY = "#2EA39C"
 CSS = f"""
 <style>
 .stButton > button, .stDownloadButton > button {{

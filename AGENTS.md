@@ -157,6 +157,7 @@ Keep entries concise — quick reference, not lengthy prose.
 
 - Each page in `pages/` must import from `modules/` or `db/` — **never** put business logic directly in a page file.
 - Always call `st.set_page_config(...)` only in `app.py`, not in individual pages.
+- `app.py` sets the global CSS theme. Brand colour is **`#2EA39C`** (RGB 46/163/156). Hover state uses **`#24857f`**. Do not hardcode other colour values for interactive elements — extend the CSS block in `app.py` instead.
 - Use `st.session_state` with explicit key names. Prefix keys by module: e.g. `esm_result`, `aml_last_check`.
 - Guard expensive operations with `@st.cache_data` or `@st.cache_resource` where appropriate. Set `ttl` explicitly.
 - **All user-visible strings must be in Czech.** This includes labels, button captions, error messages, `st.info()` / `st.warning()` / `st.error()` / `st.success()` calls, column headers, tooltip text, and any generated document content. Keep wording consistent with the existing Czech strings in the codebase.

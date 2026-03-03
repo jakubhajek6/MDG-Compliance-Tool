@@ -24,7 +24,7 @@ st.set_page_config(page_title="MDG – Monitoring", page_icon="👁️", layout=
 init_db()
 require_login()
 
-PRIMARY = "#1B3A6B"
+PRIMARY = "#2EA39C"
 CSS = f"""
 <style>
 .stButton > button, .stDownloadButton > button {{

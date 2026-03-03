@@ -38,7 +38,7 @@ st.set_page_config(page_title="MDG – ESM", page_icon="🏛️", layout="wide")
 require_login()
 
 # ===== THEME =====
-PRIMARY = "#1B3A6B"
+PRIMARY = "#2EA39C"
 CSS = f"""
 <style>
 .stButton > button, .stDownloadButton > button {{

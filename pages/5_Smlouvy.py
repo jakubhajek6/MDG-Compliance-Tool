@@ -23,7 +23,7 @@ init_db()
 require_login()
 create_sample_templates()
 
-PRIMARY = "#1B3A6B"
+PRIMARY = "#2EA39C"
 CSS = f"""
 <style>
 .stButton > button, .stDownloadButton > button {{

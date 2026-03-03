@@ -22,7 +22,7 @@ init_db()
 require_login()
 
 # ===== CSS =====
-PRIMARY = "#1B3A6B"
+PRIMARY = "#2EA39C"
 CSS = f"""
 <style>
 .stButton > button, .stDownloadButton > button {{

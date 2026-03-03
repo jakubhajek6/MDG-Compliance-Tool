@@ -22,10 +22,17 @@ init_db()
 create_sample_templates()
 
 # ===== CSS THEME =====
-PRIMARY = "#1B3A6B"
+# Brand colour: RGB 46 / 163 / 156
+PRIMARY = "#2EA39C"
+PRIMARY_DARK = "#24857f"   # ~15 % darker, used for hover states
+
 CSS = f"""
 <style>
-/* Buttons */
+/* ── Always hide Streamlit's auto-generated sidebar page list.
+       We build the sidebar manually below so the auto-list is a duplicate. ── */
+[data-testid="stSidebarNav"] {{ display: none !important; }}
+
+/* ── Buttons ── */
 .stButton > button, .stDownloadButton > button {{
     background-color: {PRIMARY} !important;
     color: white !important;
@@ -33,38 +40,53 @@ CSS = f"""
     border-radius: 6px !important;
 }}
 .stButton > button:hover, .stDownloadButton > button:hover {{
-    background-color: #15305a !important;
+    background-color: {PRIMARY_DARK} !important;
 }}
-/* Progress */
+
+/* ── Sliders ── */
+[data-testid="stSlider"] > div > div > div > div {{
+    background-color: {PRIMARY} !important;
+}}
+
+/* ── Radio & checkbox accent ── */
+input[type="radio"]:checked + label::before,
+input[type="checkbox"]:checked + label::before {{
+    background-color: {PRIMARY} !important;
+    border-color: {PRIMARY} !important;
+}}
+
+/* ── Progress bar ── */
 div.stProgress > div > div {{
     background-color: {PRIMARY} !important;
 }}
-/* Sidebar */
+
+/* ── Sidebar ── */
 section[data-testid="stSidebar"] {{
-    background-color: #F0F4F8;
+    background-color: #F4FBFB;
+    border-right: 2px solid {PRIMARY};
 }}
 section[data-testid="stSidebar"] .stMarkdown h1 {{
     color: {PRIMARY};
     font-size: 1.3rem;
 }}
-/* Status colors */
-.status-green {{ color: #28a745; font-weight: bold; }}
-.status-yellow {{ color: #ffc107; font-weight: bold; }}
-.status-red {{ color: #dc3545; font-weight: bold; }}
-/* Header */
-.small-muted {{ color: #666; font-size: 0.9rem; }}
-.breadcrumb {{ color: #888; font-size: 0.85rem; margin-bottom: 0.5rem; }}
+/* Active page link highlight in sidebar */
+[data-testid="stSidebarNav"] a[aria-current="page"],
+section[data-testid="stSidebar"] a[aria-current="page"] {{
+    color: {PRIMARY} !important;
+    font-weight: bold;
+}}
+
+/* ── Status colours ── */
+.status-green  {{ color: #28a745; font-weight: bold; }}
+.status-yellow {{ color: #e6a817; font-weight: bold; }}
+.status-red    {{ color: #dc3545; font-weight: bold; }}
+
+/* ── Misc helpers ── */
+.small-muted {{ color: #555; font-size: 0.88rem; }}
+.breadcrumb  {{ color: #888; font-size: 0.85rem; margin-bottom: 0.5rem; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
-
-# Hide the auto-generated Streamlit sidebar page list while the user is not yet
-# authenticated – once authenticated the full sidebar (built manually below) takes over.
-if not st.session_state.get("authenticated"):
-    st.markdown(
-        "<style>[data-testid='stSidebarNav'] { display: none; }</style>",
-        unsafe_allow_html=True,
-    )
 
 
 # ===== AUTENTIZACE =====
@@ -99,38 +121,36 @@ if not check_password():
 
 # ===== SIDEBAR =====
 with st.sidebar:
-    # Logo
+    # ── Logo ──────────────────────────────────────────────────────────────────
     logo_path = Path("assets/logo.png")
     if logo_path.exists():
-        st.image(str(logo_path), width=250)
+        st.image(str(logo_path), use_container_width=True)
     else:
-        st.markdown(f"# 🏛️ MDG")
+        st.markdown(
+            f'<h2 style="color:{PRIMARY}; margin:0;">MDG</h2>',
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
-    st.markdown("### Compliance Tool")
-    st.markdown(
-        '<div class="small-muted">Interní nástroj pro daňově-účetní kancelář MDG</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
 
-    # Navigace
-    st.markdown("#### Moduly")
-    st.page_link("pages/1_ESM.py", label="📋 ESM – Evidence skutečných majitelů", icon="📋")
-    st.page_link("pages/2_Vizualizace.py", label="🔗 Vizualizace vztahů", icon="🔗")
-    st.page_link("pages/3_AML.py", label="🔍 AML kontroly", icon="🔍")
-    st.page_link("pages/4_DataExport.py", label="📊 Export dat pro MasT a MT", icon="📊")
-    st.page_link("pages/5_Smlouvy.py", label="📝 Návrh smluvní dokumentace", icon="📝")
-    st.page_link("pages/6_Monitoring.py", label="👁️ Monitoring změn v OR", icon="👁️")
-    st.page_link("pages/7_Riziko.py", label="⚖️ Riziková klasifikace", icon="⚖️")
+    # ── Navigace ──────────────────────────────────────────────────────────────
+    st.page_link("app.py",                 label="🏠 Domů")
+    st.page_link("pages/1_ESM.py",         label="📋 ESM – Evidence skutečných majitelů")
+    st.page_link("pages/2_Vizualizace.py", label="🔗 Vizualizace vztahů")
+    st.page_link("pages/3_AML.py",         label="🔍 AML kontroly")
+    st.page_link("pages/4_DataExport.py",  label="📊 Export dat pro MasT a MT")
+    st.page_link("pages/5_Smlouvy.py",     label="📝 Návrh smluvní dokumentace")
+    st.page_link("pages/6_Monitoring.py",  label="👁️ Monitoring změn v OR")
+    st.page_link("pages/7_Riziko.py",      label="⚖️ Riziková klasifikace")
 
     st.markdown("---")
+
+    # ── Patička sidebaru ──────────────────────────────────────────────────────
     st.markdown(
         '<div class="small-muted">MDG Compliance Tool v1.0</div>',
         unsafe_allow_html=True,
     )
-
-    if st.button("🚪 Odhlásit"):
+    if st.button("🚪 Odhlásit", use_container_width=True):
         st.session_state["authenticated"] = False
         st.rerun()
 
