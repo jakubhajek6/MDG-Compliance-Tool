@@ -11,8 +11,63 @@ from typing import Any, Optional
 
 import requests
 
-ARES_VR_URL = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-vr/{ico}"
-ARES_ES_URL = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/{ico}"
+ARES_VR_URL  = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-vr/{ico}"
+ARES_ES_URL  = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/{ico}"
+ARES_RES_URL = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-res/{ico}"
+ARES_ROS_URL = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-ros/{ico}"
+
+# Oficiální číselník právních forem dle ČSÚ / ARES (kód → název).
+# Zdroj: https://www.czso.cz/csu/czso/klasifikace_pravnich_forem
+PRAVNI_FORMY: dict[str, str] = {
+    "101": "Fyzická osoba podnikající dle živnostenského zákona",
+    "102": "Fyzická osoba podnikající dle jiných zákonů",
+    "104": "Zemědělský podnikatel – FO nezapsána v OR",
+    "111": "Veřejná obchodní společnost",
+    "112": "Společnost s ručením omezeným",
+    "113": "Komanditní společnost",
+    "116": "Akciová společnost",
+    "117": "Akciová společnost (unitární)",
+    "118": "Evropská společnost",
+    "119": "Evropské hospodářské zájmové sdružení",
+    "121": "Společenství vlastníků jednotek",
+    "131": "Státní podnik",
+    "141": "Národní podnik",
+    "145": "Obchodní společnost se zahraniční majetkovou účastí",
+    "151": "Spořitelní a úvěrní družstvo",
+    "152": "Družstvo",
+    "161": "Fyzická osoba – nezapsána v OR",
+    "171": "Zemědělský podnikatel – FO",
+    "181": "Podnikatel – FO zapsaná v OR",
+    "205": "Státní fond",
+    "231": "Veřejnoprávní instituce",
+    "232": "Organizační složka státu",
+    "233": "Příspěvková organizace",
+    "234": "Státní fond (rozpočtový)",
+    "235": "Územní samosprávný celek",
+    "236": "Dobrovolný svazek obcí",
+    "241": "Příspěvková organizace zřízená ÚSC",
+    "301": "Sdružení (svaz, spolek, společnost, klub aj.)",
+    "302": "Pobočný spolek",
+    "311": "Spolek",
+    "312": "Pobočný spolek",
+    "321": "Zájmové sdružení právnických osob",
+    "325": "Nadace",
+    "326": "Nadační fond",
+    "331": "Církev a náboženská společnost",
+    "341": "Obecně prospěšná společnost",
+    "351": "Příspěvková organizace",
+    "352": "Organizační složka státu",
+    "361": "Příspěvková organizace jiného zřizovatele",
+    "401": "Bytové družstvo",
+    "411": "Investiční fond",
+    "421": "Jiná právnická osoba",
+    "422": "Ústav",
+    "501": "Odborová organizace",
+    "641": "Evropské družstvo",
+    "701": "Zahraniční osoba",
+    "721": "Zahraniční fyzická osoba",
+    "745": "Zahraniční právnická osoba",
+}
 
 
 def norm_ico(s: str) -> str:
@@ -20,6 +75,48 @@ def norm_ico(s: str) -> str:
     if len(digits) == 7:
         digits = "0" + digits
     return digits.zfill(8)
+
+
+def fetch_ares_res(ico: str, timeout: int = 20) -> Optional[dict]:
+    """Načte první záznam z ARES RES (Registr ekonomických subjektů).
+
+    RES je spolehlivý zdroj pro: datum vzniku, převažující CZ-NACE, finanční úřad.
+    Vrací první položku z ``zaznamy``, nebo ``None`` při chybě / nenalezení.
+    """
+    ico = norm_ico(ico)
+    url = ARES_RES_URL.format(ico=ico)
+    try:
+        r = requests.get(url, timeout=timeout, headers={
+            "Accept": "application/json",
+            "User-Agent": "MDG-Compliance-Tool/1.0"
+        })
+        if r.status_code == 200:
+            zaznamy = r.json().get("zaznamy") or []
+            return zaznamy[0] if zaznamy else None
+        return None
+    except Exception:
+        return None
+
+
+def fetch_ares_ros(ico: str, timeout: int = 20) -> Optional[dict]:
+    """Načte první záznam z ARES ROS (Registr osob).
+
+    ROS je primární zdroj datových schránek (pole ``identifikatorDs``).
+    Vrací první položku z ``zaznamy``, nebo ``None`` při chybě / nenalezení.
+    """
+    ico = norm_ico(ico)
+    url = ARES_ROS_URL.format(ico=ico)
+    try:
+        r = requests.get(url, timeout=timeout, headers={
+            "Accept": "application/json",
+            "User-Agent": "MDG-Compliance-Tool/1.0"
+        })
+        if r.status_code == 200:
+            zaznamy = r.json().get("zaznamy") or []
+            return zaznamy[0] if zaznamy else None
+        return None
+    except Exception:
+        return None
 
 
 def fetch_ares_basic(ico: str, timeout: int = 20) -> Optional[dict]:
@@ -54,8 +151,20 @@ def fetch_ares_vr(ico: str, timeout: int = 20) -> Optional[dict]:
         return None
 
 
-def extract_company_info(vr_data: dict, basic_data: Optional[dict] = None) -> dict:
-    """Extrahuje strukturovaná data o firmě z ARES VR + basic payloadu."""
+def extract_company_info(
+    vr_data: dict,
+    basic_data: Optional[dict] = None,
+    res_data: Optional[dict] = None,
+    ros_data: Optional[dict] = None,
+) -> dict:
+    """Extrahuje strukturovaná data o firmě z ARES VR + basic + RES + ROS payloadu.
+
+    Args:
+        vr_data:    Odpověď z /ekonomicke-subjekty-vr/{ico}.
+        basic_data: Odpověď z /ekonomicke-subjekty/{ico}.
+        res_data:   První záznam z /ekonomicke-subjekty-res/{ico} (datum vzniku, NACE).
+        ros_data:   První záznam z /ekonomicke-subjekty-ros/{ico} (datová schránka).
+    """
     info = {
         "ico": "",
         "dic": "",
@@ -73,6 +182,7 @@ def extract_company_info(vr_data: dict, basic_data: Optional[dict] = None) -> di
         "spolecnici": [],
         "datova_schranka": "",
         "nace_kod": "",
+        "nace_prevazujici": "",
     }
 
     if not vr_data:
@@ -90,12 +200,39 @@ def extract_company_info(vr_data: dict, basic_data: Optional[dict] = None) -> di
         info["sidlo_stat"] = sidlo.get("nazevStatu", "Česká republika") or "Česká republika"
         # pravniForma může přijít buď jako string (nový endpoint) nebo jako objekt {"nazev": ...}
         pf = basic_data.get("pravniForma") or ""
-        info["pravni_forma"] = pf.get("nazev", "") if isinstance(pf, dict) else str(pf)
+        pf_kod = pf.get("kod", str(pf)) if isinstance(pf, dict) else str(pf)
+        # Přeložíme kód právní formy na název; neznámý kód ponecháme jako fallback
+        info["pravni_forma"] = PRAVNI_FORMY.get(pf_kod, pf_kod)
         info["datova_schranka"] = _extract_ds(basic_data)
 
         nace_list = basic_data.get("czNace") or []
         if nace_list:
             info["nace_kod"] = nace_list[0] if isinstance(nace_list[0], str) else str(nace_list[0])
+
+    # RES data – spolehlivý zdroj data vzniku a převažující NACE
+    if res_data:
+        # Doplníme datum vzniku pokud jej VR/basic data neobsahují
+        if not info.get("datum_vzniku"):
+            info["datum_vzniku"] = res_data.get("datumVzniku", "") or ""
+        # CZ-NACE převažující činnosti
+        info["nace_prevazujici"] = res_data.get("czNacePrevazujici", "") or ""
+        # Právní forma z RES jako fallback (pokud basic_data chybí)
+        if not info.get("pravni_forma"):
+            pf_kod = str(res_data.get("pravniForma", "") or "")
+            info["pravni_forma"] = PRAVNI_FORMY.get(pf_kod, pf_kod)
+
+    # ROS data – primární zdroj datové schránky
+    if ros_data and not info.get("datova_schranka"):
+        ds_list = ros_data.get("datoveSchranky") or []
+        if ds_list:
+            item = ds_list[0]
+            if isinstance(item, dict):
+                # ROS používá pole „identifikatorDs" (nikoliv „idDs")
+                info["datova_schranka"] = (
+                    item.get("identifikatorDs", "") or item.get("idDs", "") or ""
+                )
+            else:
+                info["datova_schranka"] = str(item)
 
     # VR data (rejstříkový výpis)
     zaznamy = vr_data.get("zaznamy") or []

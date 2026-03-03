@@ -10,7 +10,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-from modules.ares_api import fetch_ares_basic, fetch_ares_vr, extract_company_info, norm_ico
+from modules.ares_api import fetch_ares_basic, fetch_ares_vr, fetch_ares_res, fetch_ares_ros, extract_company_info, norm_ico
 from db.database import init_db, log_audit, save_or_snapshot
 from modules.auth import require_login
 from modules.sidebar import render_sidebar
@@ -46,15 +46,23 @@ mode = st.radio("Režim zpracování", ["Jedno IČO", "Hromadné zpracování (E
 
 
 def fetch_company_data(ico_str: str) -> dict:
-    """Načte kompletní data pro jedno IČO."""
+    """Načte kompletní data pro jedno IČO ze čtyř ARES endpointů."""
     ico_str = norm_ico(ico_str)
-    vr_data = fetch_ares_vr(ico_str)
+    # VR = obchodní rejstřík (společníci, statutáři, ZK, předmět podnikání)
+    vr_data    = fetch_ares_vr(ico_str)
+    # basic  = obecné údaje (sídlo, DIČ, právní forma)
     basic_data = fetch_ares_basic(ico_str)
-    if not vr_data and not basic_data:
+    # RES    = datum vzniku, převažující NACE
+    res_data   = fetch_ares_res(ico_str)
+    # ROS    = datová schránka
+    ros_data   = fetch_ares_ros(ico_str)
+    if not vr_data and not basic_data and not res_data:
         return {"ico": ico_str, "_error": f"Nenalezeno v ARES: {ico_str}"}
-    info = extract_company_info(vr_data or {}, basic_data)
+    info = extract_company_info(vr_data or {}, basic_data, res_data=res_data, ros_data=ros_data)
     if not info.get("nazev") and basic_data:
         info["nazev"] = basic_data.get("obchodniJmeno", "") or ""
+    if not info.get("nazev") and res_data:
+        info["nazev"] = res_data.get("obchodniJmeno", "") or ""
     if not info.get("ico"):
         info["ico"] = ico_str
     return info
