@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.sqlite
+*.db
+.env
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+data/sanctions_cache/*.json
+.streamlit/secrets.toml
