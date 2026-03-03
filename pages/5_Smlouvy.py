@@ -15,10 +15,12 @@ from modules.docgen import (
     generate_all_documents, create_sample_templates,
 )
 from db.database import init_db, log_audit
+from modules.auth import require_login
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Smlouvy", page_icon="📝", layout="wide")
 init_db()
+require_login()
 create_sample_templates()
 
 PRIMARY = "#1B3A6B"

@@ -13,11 +13,13 @@ from docx import Document
 
 from modules.aml_checks import run_aml_check
 from db.database import init_db, save_aml_check, get_aml_checks, log_audit
+from modules.auth import require_login
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – AML kontroly", page_icon="🔍", layout="wide")
 
 init_db()
+require_login()
 
 # ===== CSS =====
 PRIMARY = "#1B3A6B"

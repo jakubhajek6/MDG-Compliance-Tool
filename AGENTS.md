@@ -211,6 +211,7 @@ pages/  →  modules/  →  db/ + importer/  →  external APIs
 
 - Authentication is session-based (single shared password). See `app.py:check_password()`.
 - The password is read from `MDG_PASSWORD` env var → `st.secrets["password"]` → hardcoded fallback.
+- **Every page in `pages/` must call `require_login()` from `modules/auth.py` as its first action after `st.set_page_config()`.** Streamlit multipage pages are independent Python scripts — the `st.stop()` in `app.py` does NOT protect them.
 - Do not add additional auth mechanisms without consulting the team.
 
 ### Document generation

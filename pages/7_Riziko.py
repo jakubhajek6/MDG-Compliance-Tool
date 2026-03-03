@@ -17,10 +17,12 @@ from db.database import (
     init_db, save_risk_score, get_latest_risk_score, log_audit,
     get_clients, add_client,
 )
+from modules.auth import require_login
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Riziková klasifikace", page_icon="⚖️", layout="wide")
 init_db()
+require_login()
 
 PRIMARY = "#1B3A6B"
 CSS = f"""

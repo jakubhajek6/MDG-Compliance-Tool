@@ -58,6 +58,14 @@ section[data-testid="stSidebar"] .stMarkdown h1 {{
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
+# Hide the auto-generated Streamlit sidebar page list while the user is not yet
+# authenticated – once authenticated the full sidebar (built manually below) takes over.
+if not st.session_state.get("authenticated"):
+    st.markdown(
+        "<style>[data-testid='stSidebarNav'] { display: none; }</style>",
+        unsafe_allow_html=True,
+    )
+
 
 # ===== AUTENTIZACE =====
 def check_password() -> bool:

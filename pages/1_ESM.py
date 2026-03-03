@@ -26,6 +26,7 @@ from importer.graphviz_render import build_graphviz_from_nodelines_bfs
 
 from modules.ares_api import fetch_ares_vr, extract_company_info
 from db.database import init_db, log_audit, save_or_snapshot
+from modules.auth import require_login
 
 # ===== PATH pro Graphviz =====
 for p in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/opt/local/bin", "/snap/bin"):
@@ -34,6 +35,7 @@ for p in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/opt/local/bin", "
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – ESM", page_icon="🏛️", layout="wide")
+require_login()
 
 # ===== THEME =====
 PRIMARY = "#1B3A6B"

@@ -17,10 +17,12 @@ import streamlit.components.v1 as components
 from modules.ares_api import fetch_ares_vr, fetch_ares_basic, extract_company_info, norm_ico
 from modules.justice_scraper import search_person_engagements, search_company_persons
 from db.database import init_db, get_connection, log_audit
+from modules.auth import require_login
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Vizualizace", page_icon="🔗", layout="wide")
 init_db()
+require_login()
 
 PRIMARY = "#1B3A6B"
 CSS = f"""

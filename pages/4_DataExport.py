@@ -12,11 +12,13 @@ import streamlit as st
 
 from modules.ares_api import fetch_ares_basic, fetch_ares_vr, extract_company_info, norm_ico
 from db.database import init_db, log_audit, save_or_snapshot
+from modules.auth import require_login
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Export dat", page_icon="📊", layout="wide")
 
 init_db()
+require_login()
 
 PRIMARY = "#1B3A6B"
 CSS = f"""

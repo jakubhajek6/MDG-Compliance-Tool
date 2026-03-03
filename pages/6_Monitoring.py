@@ -17,10 +17,12 @@ from db.database import (
     save_or_snapshot, get_latest_snapshot, save_or_change,
     get_unprocessed_changes, mark_change_processed, log_audit,
 )
+from modules.auth import require_login
 
 # ===== PAGE CONFIG =====
 st.set_page_config(page_title="MDG – Monitoring", page_icon="👁️", layout="wide")
 init_db()
+require_login()
 
 PRIMARY = "#1B3A6B"
 CSS = f"""
