@@ -408,10 +408,8 @@ ss_default("esm_check_structure", "")
 # ===== HEADER =====
 st.markdown('<div class="breadcrumb">Domů / ESM – Evidence skutečných majitelů</div>', unsafe_allow_html=True)
 
-if logo_bytes:
-    _b64 = base64.b64encode(logo_bytes).decode("ascii")
-    st.markdown(f'<img src="data:image/png;base64,{_b64}" style="width:400px;height:auto;margin-bottom:6px" />', unsafe_allow_html=True)
-
+# Logo je záměrně vynecháno ze zobrazení na obrazovce – je dostupné v sidebaru.
+# Pro export do PDF se logo_bytes stále používá (viz funkce build_pdf níže).
 st.markdown("## ESM – Evidence skutečných majitelů")
 st.markdown('<div class="small-muted">Online režim: společníci/akcionáři se načítají z ARES VR API.</div>', unsafe_allow_html=True)
 st.markdown("")
