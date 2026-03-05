@@ -290,10 +290,21 @@ def bulk_open_esm_js(items: list[dict]) -> str:
     Každý prvek ``items`` musí obsahovat klíče ``url`` (str) a ``filename``
     (str – požadovaný název souboru, např. ``'MatiDal s.r.o._ESM_05.03.2026.pdf'``).
 
-    Strategie: pokusí se stáhnout soubor přes ``fetch()`` s session cookies
-    (browser má aktivní ESM session) a pojmenovat ho zadaným názvem.
-    Pokud fetch selže (CORS, network error), otevře URL v nové záložce jako
-    fallback – soubor se stáhne bez vlastního názvu dle hlaviček serveru.
+    Strategie (tři úrovně, od nejlepší po zálohu):
+
+    Pokus 1 – ``fetch`` s ``mode: 'no-cors'`` a ``credentials: 'include'``:
+      Browser odešle požadavek včetně session cookies bez CORS preflight.
+      Odpověď je "opaque" – JS nemůže číst hlavičky ani tělo, ale blob existuje.
+      ``URL.createObjectURL(blob)`` + ``<a download="název.pdf">`` zajistí
+      stažení se správným názvem souboru. Funguje i bez CORS hlaviček serveru.
+
+    Pokus 2 – ``fetch`` s ``mode: 'cors'`` a ``credentials: 'include'``:
+      Záloha pokud no-cors blob má nulovou velikost (vypršená session,
+      přesměrování na login stránku). Vyžaduje CORS hlavičky od serveru –
+      lokálně může projít, na Streamlit Cloud pravděpodobně ne.
+
+    Pokus 3 – ``window.open``:
+      Absolutní záloha. Název souboru určuje server přes Content-Disposition.
 
     Args:
         items: Seznam ``{"url": str, "filename": str}`` slovníků.
@@ -301,21 +312,21 @@ def bulk_open_esm_js(items: list[dict]) -> str:
     calls_parts = []
     for i, item in enumerate(items):
         url = item["url"]
-        fname = item["filename"].replace('"', "_")  # escape pro JS string literal
+        fname = item["filename"].replace('"', "_")   # escape pro JS string
         calls_parts.append(
-            f'  downloadEsmItem("{url}", "{fname}", {i * 200});'
+            f'  downloadEsmItem("{url}", "{fname}", {i * 300});'
         )
     calls = "\n".join(calls_parts)
     return f"""
 <script>
 function downloadEsmItem(url, fname, delay) {{
   setTimeout(function() {{
-    fetch(url, {{credentials: 'include', mode: 'cors'}})
-      .then(function(r) {{
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.blob();
-      }})
+
+    // Pokus 1: no-cors – posle cookies, blob je opaque ale jde stahnout pojmenovane
+    fetch(url, {{mode: 'no-cors', credentials: 'include'}})
+      .then(function(r) {{ return r.blob(); }})
       .then(function(b) {{
+        if (b.size === 0) throw new Error('opaque blob je prazdny – session mozna vyprsela');
         var a = document.createElement('a');
         a.href = URL.createObjectURL(b);
         a.download = fname;
@@ -324,12 +335,33 @@ function downloadEsmItem(url, fname, delay) {{
         setTimeout(function() {{
           URL.revokeObjectURL(a.href);
           document.body.removeChild(a);
-        }}, 1000);
+        }}, 2000);
       }})
       .catch(function() {{
-        // CORS nebo chyba sítě – fallback na window.open (soubor bez vlastního názvu)
-        window.open(url, '_blank');
+
+        // Pokus 2: cors s credentials – vyzaduje CORS hlavicky od serveru
+        fetch(url, {{mode: 'cors', credentials: 'include'}})
+          .then(function(r) {{
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.blob();
+          }})
+          .then(function(b) {{
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(b);
+            a.download = fname;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function() {{
+              URL.revokeObjectURL(a.href);
+              document.body.removeChild(a);
+            }}, 2000);
+          }})
+          .catch(function() {{
+            // Pokus 3: absolutni zaloha – window.open, nazev urcuje server
+            window.open(url, '_blank');
+          }});
       }});
+
   }}, delay);
 }}
 {calls}
