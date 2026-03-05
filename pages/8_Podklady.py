@@ -279,15 +279,21 @@ with tab_single:
                         st.markdown(f"✅ → **{m['new_filename']}**")
                     renamed_files.append({"data": uf.read(), "filename": m["new_filename"]})
                 else:
-                    # Ruční přiřazení
+                    # Nerozpoznaný soubor – název neodpovídá vzoru výpisu ani grafiky.
+                    # Nejčastěji jde o login stránku staženou při vypršené ESM session.
                     with col_new:
+                        st.warning(
+                            f"⚠️ **{uf.name}** nebyl rozpoznán. "
+                            "Pokud jde o login stránku místo ESM souboru, stáhněte ho znovu. "
+                            "Jinak přiřaďte ručně:"
+                        )
                         sel = st.selectbox(
                             "Typ", all_options, key=f"esm_type_s_{i}",
                             label_visibility="collapsed",
                         )
                     dt = "esm_grafika" if "grafick" in sel else "esm"
                     new_name = make_filename(fn_base_s, dt)
-                    st.caption(f"→ **{new_name}**")
+                    st.caption(f"→ **{new_name}** (ruční přiřazení – obsah neověřen)")
                     renamed_files.append({"data": uf.read(), "filename": new_name})
 
             if renamed_files:
@@ -586,7 +592,17 @@ with tab_bulk:
                         st.markdown(f"✅ → **{m['new_filename']}**")
                     renamed_bulk.append({"data": uf.read(), "filename": m["new_filename"]})
                 else:
+                    # Nerozpoznaný soubor – název neodpovídá ani výpisu, ani grafice.
+                    # NEJČASTĚJŠÍ PŘÍČINA: vypršela ESM session → browser stáhl login
+                    # stránku místo PDF. Soubor bude mít špatný obsah i po přejmenování.
                     with col_new_b:
+                        st.warning(
+                            f"⚠️ Soubor **{uf.name}** nebyl rozpoznán "
+                            f"(neobsahuje `vypis-{{číslo}}` ani `grafickaStruktura`). "
+                            "Pravděpodobně jde o login stránku místo ESM souboru – "
+                            "zkontrolujte, zda máte platnou ESM session, a soubor stáhněte znovu. "
+                            "Pokud víte co soubor je, přiřaďte ručně:"
+                        )
                         sel_b = st.selectbox(
                             "Přiřadit k", all_options_b, key=f"esm_assign_b_{i}",
                             label_visibility="collapsed",
@@ -598,7 +614,7 @@ with tab_bulk:
                     c_sel = company_order_bulk[c_idx]
                     dt_sel = "esm_grafika" if is_grafika_sel else "esm"
                     new_name_b = make_filename(c_sel["nazev"] or c_sel["ico"], dt_sel)
-                    st.caption(f"→ **{new_name_b}**")
+                    st.caption(f"→ **{new_name_b}** (ruční přiřazení – obsah neověřen)")
                     renamed_bulk.append({"data": uf.read(), "filename": new_name_b})
 
             if renamed_bulk:

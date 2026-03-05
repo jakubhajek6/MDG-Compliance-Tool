@@ -270,8 +270,10 @@ def create_renamed_zip(files: list[dict]) -> bytes:
 # Automatické přiřazení uploadnutých ESM souborů ke společnostem
 # ---------------------------------------------------------------------------
 
-# Pattern pro ESM výpis: server pojmenuje soubor „vypis-{subjektId}.pdf"
-_VYPIS_PATTERN = re.compile(r"vypis-(?:uplny-sm-)?(?:plny-sm-)?(?:sm-)?(?:.*?-)?(\d{4,})", re.IGNORECASE)
+# Pattern pro ESM výpis: server pojmenuje soubor přesně „vypis-{subjektId}.pdf"
+# Záměrně jednoduchý – subjektId je přímý identifikátor, nepotřebujeme fallback.
+# Pokud soubor NEOBSAHUJE „vypis-{čísla}", pravděpodobně jde o chybovou/login stránku.
+_VYPIS_PATTERN = re.compile(r"vypis-(\d+)", re.IGNORECASE)
 # Pattern pro ESM grafiku: server pojmenuje „grafickaStruktura.svg" / „grafickaStruktura-2.svg" atd.
 _GRAFIKA_PATTERN = re.compile(r"grafick[aá]Struktura(?:-(\d+))?\.svg", re.IGNORECASE)
 
