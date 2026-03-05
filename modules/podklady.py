@@ -56,7 +56,7 @@ _OR_RETRY_DELAY = 3.0
 # Prodleva mezi stahováním OR PDF pro různé firmy v hromadném zpracování.
 # or.justice.cz rate-limituje rychlé série requestů – bez prodlevy vrátí
 # HTTP 429 nebo přesměruje na chybovou stránku, která pak selže na %PDF validaci.
-OR_INTER_REQUEST_DELAY = 1.5
+OR_INTER_REQUEST_DELAY = 2.5
 
 # ---------------------------------------------------------------------------
 # Lookup subjektId z IČO
@@ -109,10 +109,10 @@ def download_or_pdf(
 
     Validace PDF:
       - Kontroluje HTTP status (musí být 200).
-      - Kontroluje Content-Type (musí obsahovat "pdf").
       - Kontroluje skutečné PDF magic bytes ``%PDF`` na začátku obsahu –
-        or.justice.cz občas vrátí HTTP 200 + Content-Type: application/pdf
-        i pro HTML chybové stránky, takže Content-Type sám nestačí.
+        or.justice.cz může vrátit HTTP 200 s Content-Type: application/pdf
+        i pro HTML throttling/chybové stránky, takže Content-Type sám
+        nestačí a záměrně ho nekontrolujeme.
       - Minimální velikost souboru (_MIN_PDF_BYTES) jako poslední záchrana.
 
     Args:
@@ -130,17 +130,19 @@ def download_or_pdf(
     for attempt in range(1, max_retries + 1):
         try:
             r = requests.get(url, timeout=timeout, headers={
-                "Accept": "application/pdf,*/*",
-                "User-Agent": "MDG-Compliance-Tool/1.0",
+                # Realistický browserový User-Agent – or.justice.cz filtruje
+                # požadavky s neznámými/robotickými UA strings.
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/pdf,text/html,*/*;q=0.8",
+                "Accept-Language": "cs-CZ,cs;q=0.9",
+                # Referer simuluje příchod ze stránky výsledků – server
+                # může ověřovat, že požadavek přichází z legitimní cesty.
+                "Referer": "https://or.justice.cz/ias/ui/rejstrik",
             })
-
-            # Transientní serverová chyba – zkusíme znovu
-            if r.status_code >= 500:
-                last_error = f"HTTP {r.status_code} (pokus {attempt}/{max_retries})"
-                if attempt < max_retries:
-                    time.sleep(_OR_RETRY_DELAY)
-                    continue
-                return None, last_error
 
             # Rate limiting – počkáme déle a zkusíme znovu
             if r.status_code == 429:
@@ -151,26 +153,31 @@ def download_or_pdf(
                     continue
                 return None, last_error
 
-            if r.status_code != 200:
-                # 4xx a jiné – retry nepomůže
-                return None, f"HTTP {r.status_code}"
-
-            # Content-Type kontrola
-            ct = r.headers.get("Content-Type", "")
-            if "pdf" not in ct.lower():
-                last_error = f"Neočekávaný Content-Type: {ct!r} (pokus {attempt}/{max_retries})"
+            # Transientní serverová chyba – zkusíme znovu
+            if r.status_code >= 500:
+                last_error = f"HTTP {r.status_code} (pokus {attempt}/{max_retries})"
                 if attempt < max_retries:
                     time.sleep(_OR_RETRY_DELAY)
                     continue
                 return None, last_error
 
-            # Magic bytes: PDF vždy začíná %PDF (0x25 0x50 0x44 0x46)
-            # or.justice.cz někdy vrátí HTTP 200 + Content-Type: application/pdf
-            # i pro HTML chybové stránky – tohle je jediná spolehlivá detekce.
+            if r.status_code != 200:
+                # 4xx a jiné – retry nepomůže; zachytíme prvních 200 znaků pro diagnostiku
+                snippet = r.text[:200].replace("\n", " ").strip()
+                return None, f"HTTP {r.status_code} | {snippet!r}"
+
+            # Magic bytes: PDF vždy začíná %PDF (0x25 0x50 0x44 0x46).
+            # POZOR: Nespoléháme na Content-Type – or.justice.cz může vrátit
+            # Content-Type: application/pdf i pro HTML throttling stránky.
+            # Magic bytes jsou jediná spolehlivá validace.
+            ct = r.headers.get("Content-Type", "")
             if not r.content.startswith(b"%PDF"):
+                snippet = r.text[:300].replace("\n", " ").strip()
                 last_error = (
-                    f"Stažený soubor není PDF (magic bytes chybí) – "
-                    f"pravděpodobně dočasná chyba serveru (pokus {attempt}/{max_retries})"
+                    f"Odpověď není PDF (magic bytes chybí). "
+                    f"Content-Type: {ct!r}. "
+                    f"Začátek odpovědi: {snippet!r} "
+                    f"(pokus {attempt}/{max_retries})"
                 )
                 if attempt < max_retries:
                     time.sleep(_OR_RETRY_DELAY)
