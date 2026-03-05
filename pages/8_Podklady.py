@@ -110,12 +110,10 @@ with tab_single:
     with col_ico:
         ico_single = st.text_input("IČO", placeholder="03999840", key="single_ico")
     with col_sid:
-        sid_default = ""
-        if ico_single and st.session_state.get("single_looked_up") == ico_single:
-            sid_default = st.session_state.get("single_sid_found", "")
+        # Hodnota widgetu je řízena výhradně přes st.session_state["single_sid"];
+        # nenastavujeme value= parametr, aby st.text_input neignoroval session_state.
         subjekt_id_single = st.text_input(
             "subjektId (justice.cz) – lze přepsat",
-            value=sid_default,
             placeholder="898776",
             key="single_sid",
         )
@@ -129,9 +127,9 @@ with tab_single:
                 with st.spinner("Hledám v justice.cz…"):
                     found = lookup_subjekt_id(ico_single.strip())
                 if found:
-                    st.session_state["single_looked_up"] = ico_single.strip()
-                    st.session_state["single_sid_found"] = found
-                    st.success(f"Nalezeno subjektId: **{found}**")
+                    # Nastavíme hodnotu widgetu přímo přes jeho session_state klíč.
+                    # Streamlit při rerunu načte tuto hodnotu do text_input.
+                    st.session_state["single_sid"] = found
                     st.rerun()
                 else:
                     st.error("subjektId nebylo nalezeno. Zadejte ho ručně.")
@@ -169,14 +167,9 @@ with tab_single:
                 ico_single.strip() or subjekt_id_single.strip()
             )
             if entry:
-                st.success("OR výpis stažen úspěšně ✅")
-                st.download_button(
-                    label=f"💾 Uložit: {entry['filename']}",
-                    data=entry["data"],
-                    file_name=entry["filename"],
-                    mime="application/pdf",
-                    key="dl_or_single",
-                )
+                st.success(f"✅ OR výpis stažen – ukládám jako **{entry['filename']}**")
+                # Okamžité stažení přes JS data-URI; uživatel nemusí klikat znovu.
+                components.html(bulk_download_js([entry]), height=0)
                 st.session_state["single_run_id"] = run_id
             else:
                 st.error("Stahování selhalo ❌ – zkontrolujte subjektId nebo připojení.")
@@ -191,12 +184,14 @@ with tab_single:
     if subjekt_id_single.strip():
         if st.button("📥 Stahovat ESM podklady (výpis + grafika)",
                      key="btn_esm_single_open", type="primary"):
-            # Spustíme oba downloady přes JS window.open – browser má aktivní session
-            urls = [
-                esm_vypis_url(subjekt_id_single.strip()),
-                esm_grafika_url(subjekt_id_single.strip()),
+            # Stáhneme přes fetch+blob aby se soubory pojmenovaly správně
+            sid = subjekt_id_single.strip()
+            nazev_for_fn = nazev_single.strip() or ico_single.strip() or sid
+            esm_dl_items = [
+                {"url": esm_vypis_url(sid), "filename": make_filename(nazev_for_fn, "esm")},
+                {"url": esm_grafika_url(sid), "filename": make_filename(nazev_for_fn, "esm_grafika")},
             ]
-            components.html(bulk_open_esm_js(urls), height=0)
+            components.html(bulk_open_esm_js(esm_dl_items), height=0)
 
             # Auto-mark ok: browser session funguje, download proběhne automaticky
             run_id = st.session_state.get("single_run_id")
@@ -432,13 +427,18 @@ with tab_bulk:
             key="btn_esm_bulk_open",
             type="primary",
         ):
-            # Sestavíme seznam všech URL – výpis + grafika pro každého klienta
-            all_urls: list[str] = []
+            # Sestavíme seznam items s URL + názvem souboru – výpis + grafika
+            all_esm_items: list[dict] = []
             for r in esm_items:
-                all_urls.append(esm_vypis_url(r["subjekt_id"]))
-                all_urls.append(esm_grafika_url(r["subjekt_id"]))
-            # Injektujeme JS – window.open() pro každý URL
-            components.html(bulk_open_esm_js(all_urls), height=0)
+                fn_base = r["nazev"] or r["ico"]
+                all_esm_items.append(
+                    {"url": esm_vypis_url(r["subjekt_id"]), "filename": make_filename(fn_base, "esm")}
+                )
+                all_esm_items.append(
+                    {"url": esm_grafika_url(r["subjekt_id"]), "filename": make_filename(fn_base, "esm_grafika")}
+                )
+            # Injektujeme JS – fetch+blob pro pojmenování, window.open jako fallback
+            components.html(bulk_open_esm_js(all_esm_items), height=0)
 
             # Auto-mark ok pro všechny záznamy s platným subjektId
             for r in esm_items:

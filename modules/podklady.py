@@ -221,21 +221,54 @@ function dl(b64, fname) {{
 """
 
 
-def bulk_open_esm_js(urls: list[str]) -> str:
-    """Vrátí HTML/JS snippet, který hromadně otevře ESM URL v nových záložkách.
+def bulk_open_esm_js(items: list[dict]) -> str:
+    """Vrátí HTML/JS snippet, který hromadně stáhne ESM dokumenty v prohlížeči.
 
-    Využívá ``window.open()`` iniciované na GUI event (tlačítko v Streamlit
-    odesílá component click), takže popup bloker nezasahuje.
+    Každý prvek ``items`` musí obsahovat klíče ``url`` (str) a ``filename``
+    (str – požadovaný název souboru, např. ``'MatiDal s.r.o._ESM_05.03.2026.pdf'``).
+
+    Strategie: pokusí se stáhnout soubor přes ``fetch()`` s session cookies
+    (browser má aktivní ESM session) a pojmenovat ho zadaným názvem.
+    Pokud fetch selže (CORS, network error), otevře URL v nové záložce jako
+    fallback – soubor se stáhne bez vlastního názvu dle hlaviček serveru.
 
     Args:
-        urls: Seznam ESM URL (střídavě výpis / grafika nebo libovolný seznam).
+        items: Seznam ``{"url": str, "filename": str}`` slovníků.
     """
-    open_calls = "\n".join(
-        f"  setTimeout(function(){{ window.open({url!r}, '_blank'); }}, {i * 100});"
-        for i, url in enumerate(urls)
-    )
+    calls_parts = []
+    for i, item in enumerate(items):
+        url = item["url"]
+        fname = item["filename"].replace('"', "_")  # escape pro JS string literal
+        calls_parts.append(
+            f'  downloadEsmItem("{url}", "{fname}", {i * 200});'
+        )
+    calls = "\n".join(calls_parts)
     return f"""
 <script>
-{open_calls}
+function downloadEsmItem(url, fname, delay) {{
+  setTimeout(function() {{
+    fetch(url, {{credentials: 'include', mode: 'cors'}})
+      .then(function(r) {{
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.blob();
+      }})
+      .then(function(b) {{
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function() {{
+          URL.revokeObjectURL(a.href);
+          document.body.removeChild(a);
+        }}, 1000);
+      }})
+      .catch(function() {{
+        // CORS nebo chyba sítě – fallback na window.open (soubor bez vlastního názvu)
+        window.open(url, '_blank');
+      }});
+  }}, delay);
+}}
+{calls}
 </script>
 """

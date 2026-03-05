@@ -34,6 +34,29 @@ def init_db():
             conn.commit()
         except sqlite3.OperationalError:
             pass  # sloupec již existuje
+
+        # Belt-and-suspenders: explicitně vytvoříme podklady_runs pokud ještě neexistuje.
+        # Pokrývá případ, kdy DB vznikla ze starší verze schema.sql (bez podklady_runs)
+        # a executescript výše tabulku nevytvořil. CREATE TABLE IF NOT EXISTS je idempotentní.
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS podklady_runs (
+                id INTEGER PRIMARY KEY,
+                run_date TEXT NOT NULL,
+                ico TEXT NOT NULL,
+                subjekt_id TEXT,
+                nazev TEXT,
+                or_status TEXT DEFAULT 'pending',
+                esm_status TEXT DEFAULT 'pending',
+                esm_grafika_status TEXT DEFAULT 'pending',
+                notes TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_podklady_runs_ico
+                ON podklady_runs(ico);
+            CREATE INDEX IF NOT EXISTS idx_podklady_runs_date
+                ON podklady_runs(run_date);
+            CREATE INDEX IF NOT EXISTS idx_podklady_runs_ico_date
+                ON podklady_runs(ico, run_date);
+        """)
     finally:
         conn.close()
 
