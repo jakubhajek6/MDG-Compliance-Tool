@@ -556,6 +556,27 @@ with tab_bulk:
             if unmatched_count:
                 st.warning(f"⚠️ {unmatched_count} souborů nebylo rozpoznáno – přiřaďte ručně níže.")
 
+            # Detekce chybějících souborů: porovnáme nahrané vs. očekávané
+            if len(esm_uploads_bulk) < expected_count:
+                # Zjistíme, které (company_idx, doc_type) páry jsou pokryté nahraným souborem
+                covered: set[tuple[int, str]] = set()
+                for m in matches_b:
+                    if m["matched"] and m["company_idx"] is not None:
+                        covered.add((m["company_idx"], m["doc_type"]))
+                missing_labels: list[str] = []
+                for ci, c in enumerate(company_order_bulk):
+                    label = c["nazev"] or c["ico"]
+                    if (ci, "esm") not in covered:
+                        missing_labels.append(f"**{label}** – ESM výpis")
+                    if (ci, "esm_grafika") not in covered:
+                        missing_labels.append(f"**{label}** – ESM grafická struktura")
+                if missing_labels:
+                    missing_md = "\n".join(f"- {x}" for x in missing_labels)
+                    st.error(
+                        f"Nahráno {len(esm_uploads_bulk)} ze {expected_count} souborů. "
+                        f"Pravděpodobně chybí:\n{missing_md}"
+                    )
+
             for i, (uf, m) in enumerate(zip(esm_uploads_bulk, matches_b)):
                 col_orig_b, col_new_b = st.columns([2, 3])
                 with col_orig_b:
