@@ -47,6 +47,11 @@ _ESM_GRAFIKA_URL = (
 # Minimální akceptovatelná velikost PDF v bajtech (ochrana před HTML chybovou stránkou)
 _MIN_PDF_BYTES = 5_000
 
+# Maximální počet pokusů při stahování OR PDF
+_OR_MAX_RETRIES = 3
+# Prodleva mezi pokusy v sekundách
+_OR_RETRY_DELAY = 2.0
+
 # ---------------------------------------------------------------------------
 # Lookup subjektId z IČO
 # ---------------------------------------------------------------------------
@@ -87,38 +92,96 @@ def lookup_subjekt_id(ico: str, timeout: int = 20) -> str | None:
 # ---------------------------------------------------------------------------
 
 def download_or_pdf(
-    subjekt_id: str, timeout: int = 30
+    subjekt_id: str, timeout: int = 30, max_retries: int = _OR_MAX_RETRIES
 ) -> tuple[bytes | None, str]:
     """Stáhne PDF výpisu z obchodního rejstříku ze serveru or.justice.cz.
 
     Endpoint je veřejný a nevyžaduje autentizaci.
 
+    Implementuje retry logiku: při 5xx chybách nebo síťovém výpadku zkusí
+    stažení až ``max_retries``-krát s prodlevou ``_OR_RETRY_DELAY`` sekund.
+
+    Validace PDF:
+      - Kontroluje HTTP status (musí být 200).
+      - Kontroluje Content-Type (musí obsahovat "pdf").
+      - Kontroluje skutečné PDF magic bytes ``%PDF`` na začátku obsahu –
+        or.justice.cz občas vrátí HTTP 200 + Content-Type: application/pdf
+        i pro HTML chybové stránky, takže Content-Type sám nestačí.
+      - Minimální velikost souboru (_MIN_PDF_BYTES) jako poslední záchrana.
+
     Args:
-        subjekt_id: justice.cz interní ID subjektu.
-        timeout:    Timeout HTTP požadavku v sekundách.
+        subjekt_id:  justice.cz interní ID subjektu.
+        timeout:     Timeout jednoho HTTP požadavku v sekundách.
+        max_retries: Maximální počet pokusů celkem (včetně prvního).
 
     Returns:
         Dvojice ``(bytes, "ok")`` při úspěchu, nebo ``(None, popis_chyby)``
-        při jakékoli chybě (HTTP chyba, příliš malý soubor, timeout, …).
+        při selhání všech pokusů.
     """
     url = _OR_PDF_URL.format(subjekt_id=subjekt_id)
-    try:
-        r = requests.get(url, timeout=timeout, headers={
-            "Accept": "application/pdf,*/*",
-            "User-Agent": "MDG-Compliance-Tool/1.0",
-        })
-        if r.status_code != 200:
-            return None, f"HTTP {r.status_code}"
-        ct = r.headers.get("Content-Type", "")
-        if "pdf" not in ct.lower():
-            return None, f"Neočekávaný Content-Type: {ct!r}"
-        if len(r.content) < _MIN_PDF_BYTES:
-            return None, f"Soubor příliš malý ({len(r.content)} B) – pravděpodobně chybová stránka"
-        return r.content, "ok"
-    except requests.Timeout:
-        return None, "Timeout při stahování"
-    except requests.RequestException as exc:
-        return None, f"Chyba sítě: {exc}"
+    last_error = "neznámá chyba"
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            r = requests.get(url, timeout=timeout, headers={
+                "Accept": "application/pdf,*/*",
+                "User-Agent": "MDG-Compliance-Tool/1.0",
+            })
+
+            # Transientní serverová chyba – zkusíme znovu
+            if r.status_code >= 500:
+                last_error = f"HTTP {r.status_code} (pokus {attempt}/{max_retries})"
+                if attempt < max_retries:
+                    time.sleep(_OR_RETRY_DELAY)
+                    continue
+                return None, last_error
+
+            if r.status_code != 200:
+                # 4xx a jiné – retry nepomůže
+                return None, f"HTTP {r.status_code}"
+
+            # Content-Type kontrola
+            ct = r.headers.get("Content-Type", "")
+            if "pdf" not in ct.lower():
+                last_error = f"Neočekávaný Content-Type: {ct!r} (pokus {attempt}/{max_retries})"
+                if attempt < max_retries:
+                    time.sleep(_OR_RETRY_DELAY)
+                    continue
+                return None, last_error
+
+            # Magic bytes: PDF vždy začíná %PDF (0x25 0x50 0x44 0x46)
+            # or.justice.cz někdy vrátí HTTP 200 + Content-Type: application/pdf
+            # i pro HTML chybové stránky – tohle je jediná spolehlivá detekce.
+            if not r.content.startswith(b"%PDF"):
+                last_error = (
+                    f"Stažený soubor není PDF (magic bytes chybí) – "
+                    f"pravděpodobně dočasná chyba serveru (pokus {attempt}/{max_retries})"
+                )
+                if attempt < max_retries:
+                    time.sleep(_OR_RETRY_DELAY)
+                    continue
+                return None, last_error
+
+            if len(r.content) < _MIN_PDF_BYTES:
+                last_error = f"Soubor příliš malý ({len(r.content)} B) (pokus {attempt}/{max_retries})"
+                if attempt < max_retries:
+                    time.sleep(_OR_RETRY_DELAY)
+                    continue
+                return None, last_error
+
+            # Vše prošlo – vrátíme obsah
+            return r.content, "ok"
+
+        except requests.Timeout:
+            last_error = f"Timeout při stahování (pokus {attempt}/{max_retries})"
+            if attempt < max_retries:
+                time.sleep(_OR_RETRY_DELAY)
+        except requests.RequestException as exc:
+            last_error = f"Chyba sítě: {exc} (pokus {attempt}/{max_retries})"
+            if attempt < max_retries:
+                time.sleep(_OR_RETRY_DELAY)
+
+    return None, last_error
 
 
 # ---------------------------------------------------------------------------
