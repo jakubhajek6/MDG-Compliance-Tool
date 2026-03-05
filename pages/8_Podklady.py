@@ -110,8 +110,10 @@ with tab_single:
     with col_ico:
         ico_single = st.text_input("IČO", placeholder="03999840", key="single_ico")
     with col_sid:
-        # Hodnota widgetu je řízena výhradně přes st.session_state["single_sid"];
-        # nenastavujeme value= parametr, aby st.text_input neignoroval session_state.
+        # Pokud lookup uložil výsledek do staging klíče, přeneseme ho do widget klíče
+        # DŘÍVE než níže ležící st.text_input vyrendruje widget – ječiná bezpečná chvíla.
+        if "_single_sid_pending" in st.session_state:
+            st.session_state["single_sid"] = st.session_state.pop("_single_sid_pending")
         subjekt_id_single = st.text_input(
             "subjektId (justice.cz) – lze přepsat",
             placeholder="898776",
@@ -127,9 +129,10 @@ with tab_single:
                 with st.spinner("Hledám v justice.cz…"):
                     found = lookup_subjekt_id(ico_single.strip())
                 if found:
-                    # Nastavíme hodnotu widgetu přímo přes jeho session_state klíč.
-                    # Streamlit při rerunu načte tuto hodnotu do text_input.
-                    st.session_state["single_sid"] = found
+                    # Uložíme do staging klíče (ne do widget klíče!) – widget již
+                    # existuje v session_state a přímé nastavení by hodilo StreamlitAPIException.
+                    # Při dalším rerunu blok výše přepis do "single_sid" před renderováním widgetu.
+                    st.session_state["_single_sid_pending"] = found
                     st.rerun()
                 else:
                     st.error("subjektId nebylo nalezeno. Zadejte ho ručně.")
