@@ -75,20 +75,6 @@ def _status_icon(status: str) -> str:
     return {"ok": "✅", "error": "❌", "pending": "🕐"}.get(status, "🕐")
 
 
-def _run_single_ico(ico: str, subjekt_id: str, nazev: str) -> int:
-    """Vytvoří záznam běhu a stáhne OR PDF. Vrátí run_id."""
-    run_id = save_podklady_run(ico, subjekt_id, nazev)
-    pdf_bytes, msg = download_or_pdf(subjekt_id)
-    or_status = "ok" if pdf_bytes else "error"
-    update_podklady_status(run_id, "or_status", or_status)
-    log_audit("Podklady", "or_download", ico=ico, entity_name=nazev,
-              details=f"subjektId={subjekt_id} status={or_status} {msg}")
-    # Uložíme bytes do session_state pro pozdější download button
-    st.session_state.setdefault("podklady_or_pdfs", {})
-    if pdf_bytes:
-        fname = make_filename(nazev or ico, "or")
-        st.session_state["podklady_or_pdfs"][ico] = {"data": pdf_bytes, "filename": fname}
-    return run_id
 
 
 # ===========================================================================
@@ -105,134 +91,119 @@ tab_single, tab_bulk, tab_history = st.tabs([
 # ===========================================================================
 with tab_single:
     st.subheader("Stažení podkladů pro jednu společnost")
-
-    col_ico, col_sid = st.columns([1, 1])
-    with col_ico:
-        ico_single = st.text_input("IČO", placeholder="03999840", key="single_ico")
-    with col_sid:
-        # Pokud lookup uložil výsledek do staging klíče, přeneseme ho do widget klíče
-        # DŘÍVE než níže ležící st.text_input vyrendruje widget – ječiná bezpečná chvíla.
-        if "_single_sid_pending" in st.session_state:
-            st.session_state["single_sid"] = st.session_state.pop("_single_sid_pending")
-        subjekt_id_single = st.text_input(
-            "subjektId (justice.cz) – lze přepsat",
-            placeholder="898776",
-            key="single_sid",
-        )
-
-    col_btn1, col_btn2, _ = st.columns([1, 1, 2])
-    with col_btn1:
-        if st.button("🔍 Vyhledat subjektId", key="btn_lookup_single"):
-            if not ico_single.strip():
-                st.error("Zadejte IČO.")
-            else:
-                with st.spinner("Hledám v justice.cz…"):
-                    found = lookup_subjekt_id(ico_single.strip())
-                if found:
-                    # Uložíme do staging klíče (ne do widget klíče!) – widget již
-                    # existuje v session_state a přímé nastavení by hodilo StreamlitAPIException.
-                    # Při dalším rerunu blok výše přepis do "single_sid" před renderováním widgetu.
-                    st.session_state["_single_sid_pending"] = found
-                    st.rerun()
-                else:
-                    st.error("subjektId nebylo nalezeno. Zadejte ho ručně.")
-
-    with col_btn2:
-        if st.button("💾 Uložit subjektId ke klientovi", key="btn_save_sid"):
-            if ico_single.strip() and subjekt_id_single.strip():
-                upsert_client_subjekt_id(ico_single.strip(), subjekt_id_single.strip())
-                log_audit("Podklady", "save_subjekt_id", ico=ico_single.strip(),
-                          details=f"subjektId={subjekt_id_single.strip()}")
-                st.success("subjektId uloženo.")
-            else:
-                st.warning("Vyplňte IČO i subjektId.")
-
-    st.markdown("---")
-
-    # ── OR výpis ──────────────────────────────────────────────────────────
-    st.markdown("### 📑 Výpis z obchodního rejstříku")
-    st.caption("Stažení probíhá na serveru (veřejný endpoint or.justice.cz) – nepotřebujete být přihlášeni.")
-
-    nazev_single = st.text_input("Název společnosti (pro pojmenování souboru)", key="single_nazev",
-                                  placeholder="MatiDal s.r.o.")
-
-    if st.button("📥 Stáhnout OR výpis", key="btn_or_single", type="primary"):
-        if not subjekt_id_single.strip():
-            st.error("Nejprve vyhledejte nebo zadejte subjektId.")
-        else:
-            with st.spinner("Stahuji OR výpis…"):
-                run_id = _run_single_ico(
-                    ico_single.strip() or subjekt_id_single.strip(),
-                    subjekt_id_single.strip(),
-                    nazev_single.strip(),
-                )
-            entry = st.session_state["podklady_or_pdfs"].get(
-                ico_single.strip() or subjekt_id_single.strip()
-            )
-            if entry:
-                st.success(f"✅ OR výpis stažen – ukládám jako **{entry['filename']}**")
-                # Okamžité stažení přes JS data-URI; uživatel nemusí klikat znovu.
-                components.html(bulk_download_js([entry]), height=0)
-                st.session_state["single_run_id"] = run_id
-            else:
-                st.error("Stahování selhalo ❌ – zkontrolujte subjektId nebo připojení.")
-
-    # ── ESM výpis a grafika ───────────────────────────────────────────────
-    st.markdown("### 🔗 Evidence skutečných majitelů")
     st.caption(
-        "Tlačítko otevře obě ESM záložky najednou a automaticky označí stav jako ✅. "
-        "Vyžaduje aktivní ESM session v tomto prohlížeči (bankovní identita)."
+        "Zadejte IČO a název. Jedno tlačítko stáhne OR výpis (pojmenovaný) "
+        "a otevře ESM záložky. subjektId se doplní automaticky."
     )
 
-    if subjekt_id_single.strip():
-        if st.button("📥 Stahovat ESM podklady (výpis + grafika)",
-                     key="btn_esm_single_open", type="primary"):
-            # Stáhneme přes fetch+blob aby se soubory pojmenovaly správně
-            sid = subjekt_id_single.strip()
-            nazev_for_fn = nazev_single.strip() or ico_single.strip() or sid
-            esm_dl_items = [
-                {"url": esm_vypis_url(sid), "filename": make_filename(nazev_for_fn, "esm")},
-                {"url": esm_grafika_url(sid), "filename": make_filename(nazev_for_fn, "esm_grafika")},
-            ]
-            components.html(bulk_open_esm_js(esm_dl_items), height=0)
+    # Staging-key pattern: staging klíč se přenese do widget klíče PŘED renderováním widgetu.
+    # Nutné proto, že Streamlit zakazuje přímou modifikaci klíče po instantiaci widgetu.
+    if "_single_sid_pending" in st.session_state:
+        st.session_state["single_sid"] = st.session_state.pop("_single_sid_pending")
 
-            # Auto-mark ok: browser session funguje, download proběhne automaticky
-            run_id = st.session_state.get("single_run_id")
-            if not run_id:
-                run_id = save_podklady_run(
-                    ico_single.strip() or subjekt_id_single.strip(),
-                    subjekt_id_single.strip(),
-                    nazev_single.strip(),
-                )
-                st.session_state["single_run_id"] = run_id
-            update_podklady_status(run_id, "esm_status", "ok")
-            update_podklady_status(run_id, "esm_grafika_status", "ok")
-            log_audit("Podklady", "esm_auto_triggered", ico=ico_single.strip(),
-                      details=f"subjektId={subjekt_id_single.strip()}")
-            st.success("✅ ESM záložky otevřeny – stažení proběhlo automaticky.")
+    col_ico, col_nazev = st.columns(2)
+    with col_ico:
+        ico_single = st.text_input("IČO", placeholder="03999840", key="single_ico")
+    with col_nazev:
+        nazev_single = st.text_input(
+            "Název společnosti (pro pojmenování souborů)",
+            placeholder="MatiDal s.r.o.",
+            key="single_nazev",
+        )
 
-        # Opt-out: pokud výjimečně něco selhalo, uživatel může opravit
-        with st.expander("⚠️ Něco selhalo? Opravit stav", expanded=False):
-            st.caption("Použijte pouze pokud se některý soubor ve skutečnosti nestahl.")
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                esm_failed = st.checkbox("ESM výpis se nestahl ❌", key="esm_single_failed")
-            with col_s2:
-                esm_graf_failed = st.checkbox("ESM grafika se nestahla ❌", key="esm_graf_single_failed")
-            if st.button("💾 Uložit opravu", key="btn_esm_single_fix"):
-                run_id = st.session_state.get("single_run_id")
-                if run_id:
-                    if esm_failed:
-                        update_podklady_status(run_id, "esm_status", "error")
-                    if esm_graf_failed:
-                        update_podklady_status(run_id, "esm_grafika_status", "error")
-                    log_audit("Podklady", "esm_status_corrected", ico=ico_single.strip(),
-                              details=f"výpis_error={esm_failed} grafika_error={esm_graf_failed}")
-                    st.success("Stav opraven.")
+    subjekt_id_single = st.text_input(
+        "subjektId (justice.cz) – doplní se automaticky, lze přepsat",
+        placeholder="898776",
+        key="single_sid",
+    )
+
+    if st.button("📥 Stáhnout všechny podklady (OR + ESM)", key="btn_all_single", type="primary"):
+        ico = ico_single.strip()
+        sid = subjekt_id_single.strip()
+        nazev = nazev_single.strip()
+
+        if not ico:
+            st.error("Zadejte IČO.")
+        else:
+            # ── 1. Auto-lookup subjektId pokud chybí ──────────────────────
+            if not sid:
+                with st.spinner("Hledám subjektId v justice.cz…"):
+                    sid = lookup_subjekt_id(ico) or ""
+                if sid:
+                    # Uložíme zpět do formuláře přes staging klíč (viz výše)
+                    st.session_state["_single_sid_pending"] = sid
+                    upsert_client_subjekt_id(ico, sid)
                 else:
-                    st.warning("Nejprve spusťte stahování ESM.")
-    else:
-        st.info("Zadejte subjektId pro stažení ESM podkladů.")
+                    st.error(
+                        "subjektId nebylo nalezeno na justice.cz. "
+                        "Zadejte ho ručně do pole výše."
+                    )
+
+            if sid:
+                # ── 2. Stažení OR PDF ze serveru ──────────────────────────
+                with st.spinner("Stahuji OR výpis…"):
+                    pdf_bytes, or_msg = download_or_pdf(sid)
+
+                fn_base = nazev or ico
+
+                # ── 3. Uložení záznamu a statusů ──────────────────────────
+                run_id = save_podklady_run(ico, sid, nazev)
+                st.session_state["single_run_id"] = run_id
+                update_podklady_status(run_id, "or_status", "ok" if pdf_bytes else "error")
+                update_podklady_status(run_id, "esm_status", "ok")
+                update_podklady_status(run_id, "esm_grafika_status", "ok")
+                log_audit("Podklady", "all_download", ico=ico, entity_name=nazev,
+                          details=f"sid={sid} or={'ok' if pdf_bytes else or_msg}")
+
+                # ── 4. JS injekce – OR data-URI (pojmenovaně) + ESM fetch ─
+                # OR: máme bytes na serveru → base64 data-URI → a.download = vlastní název ✅
+                # ESM: cross-origin fetch s credentials → pokud CORS dovolí, blob + a.download;
+                #      jinak fallback window.open (název určuje server přes Content-Disposition)
+                js_parts: list[str] = []
+                if pdf_bytes:
+                    js_parts.append(bulk_download_js(
+                        [{"data": pdf_bytes, "filename": make_filename(fn_base, "or")}]
+                    ))
+
+                js_parts.append(bulk_open_esm_js([
+                    {"url": esm_vypis_url(sid),    "filename": make_filename(fn_base, "esm")},
+                    {"url": esm_grafika_url(sid),   "filename": make_filename(fn_base, "esm_grafika")},
+                ]))
+                components.html("\n".join(js_parts), height=0)
+
+                if pdf_bytes:
+                    st.success(
+                        f"✅ Spuštěno stahování 3 souborů: "
+                        f"**{make_filename(fn_base, 'or')}**, ESM výpis, ESM grafika."
+                    )
+                else:
+                    st.warning(
+                        f"⚠️ OR výpis se nepodařilo stáhnout ({or_msg}). "
+                        "ESM záložky byly otevřeny."
+                    )
+
+    # Opt-out: uživatel může opravit ESM stav pokud se soubor nestáhl
+    if st.session_state.get("single_run_id"):
+        with st.expander("⚠️ Něco selhalo? Opravit stav záznamu", expanded=False):
+            st.caption("Použijte pouze pokud se některý soubor skutečně nestáhl.")
+            col_s1, col_s2, col_s3 = st.columns(3)
+            with col_s1:
+                fix_or = st.checkbox("OR výpis ❌", key="fix_or_single")
+            with col_s2:
+                fix_esm = st.checkbox("ESM výpis ❌", key="fix_esm_single")
+            with col_s3:
+                fix_graf = st.checkbox("ESM grafika ❌", key="fix_graf_single")
+            if st.button("💾 Uložit opravu", key="btn_fix_single"):
+                run_id = st.session_state["single_run_id"]
+                if fix_or:
+                    update_podklady_status(run_id, "or_status", "error")
+                if fix_esm:
+                    update_podklady_status(run_id, "esm_status", "error")
+                if fix_graf:
+                    update_podklady_status(run_id, "esm_grafika_status", "error")
+                log_audit("Podklady", "status_corrected", ico=ico_single.strip(),
+                          details=f"or={fix_or} esm={fix_esm} grafika={fix_graf}")
+                st.success("Stav opraven.")
 
 # ===========================================================================
 # TAB 2 – Hromadné zpracování
