@@ -21,6 +21,7 @@ from db.database import (
 )
 from modules.auth import require_login
 from modules.podklady import (
+    OR_INTER_REQUEST_DELAY,
     bulk_download_js,
     bulk_open_esm_js,
     create_renamed_zip,
@@ -415,6 +416,11 @@ with tab_bulk:
                     "run_id": run_id, "or_status": or_status, "or_entry": or_entry,
                     "or_msg": msg,
                 })
+
+                # Prodleva mezi firmami – or.justice.cz rate-limituje rychlé série.
+                # Bez ní vrátí 429 nebo redirect stránku, která selže na %PDF validaci.
+                if idx < len(bulk_rows) - 1:
+                    time.sleep(OR_INTER_REQUEST_DELAY)
 
         progress.progress(1.0, text="Hotovo!")
         st.session_state["bulk_results"] = results

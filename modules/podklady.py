@@ -51,8 +51,12 @@ _MIN_PDF_BYTES = 5_000
 
 # Maximální počet pokusů při stahování OR PDF
 _OR_MAX_RETRIES = 3
-# Prodleva mezi pokusy v sekundách
-_OR_RETRY_DELAY = 2.0
+# Prodleva mezi pokusy v sekundách (při chybě jednoho requestu)
+_OR_RETRY_DELAY = 3.0
+# Prodleva mezi stahováním OR PDF pro různé firmy v hromadném zpracování.
+# or.justice.cz rate-limituje rychlé série requestů – bez prodlevy vrátí
+# HTTP 429 nebo přesměruje na chybovou stránku, která pak selže na %PDF validaci.
+OR_INTER_REQUEST_DELAY = 1.5
 
 # ---------------------------------------------------------------------------
 # Lookup subjektId z IČO
@@ -135,6 +139,15 @@ def download_or_pdf(
                 last_error = f"HTTP {r.status_code} (pokus {attempt}/{max_retries})"
                 if attempt < max_retries:
                     time.sleep(_OR_RETRY_DELAY)
+                    continue
+                return None, last_error
+
+            # Rate limiting – počkáme déle a zkusíme znovu
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("Retry-After", _OR_RETRY_DELAY * 2))
+                last_error = f"HTTP 429 Too Many Requests (pokus {attempt}/{max_retries})"
+                if attempt < max_retries:
+                    time.sleep(retry_after)
                     continue
                 return None, last_error
 
