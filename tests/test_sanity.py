@@ -218,3 +218,128 @@ class TestPodkladyDb:
         c = next((x for x in clients if x["ico"] == "03999840"), None)
         assert c is not None
         assert c["subjekt_id"] == "898776"
+
+
+# ===========================================================================
+# make_filename – SVG extension for esm_grafika
+# ===========================================================================
+
+class TestMakeFilenameSvg:
+    """Testy pro make_filename – správná přípona (.pdf vs .svg)."""
+
+    def test_or_has_pdf_extension(self):
+        from modules.podklady import make_filename
+        name = make_filename("Test s.r.o.", "or")
+        assert name.endswith(".pdf")
+
+    def test_esm_has_pdf_extension(self):
+        from modules.podklady import make_filename
+        name = make_filename("Test s.r.o.", "esm")
+        assert name.endswith(".pdf")
+
+    def test_esm_grafika_has_svg_extension(self):
+        from modules.podklady import make_filename
+        name = make_filename("Test s.r.o.", "esm_grafika")
+        assert name.endswith(".svg")
+        assert "grafická struktura" in name
+
+
+# ===========================================================================
+# create_renamed_zip
+# ===========================================================================
+
+class TestCreateRenamedZip:
+    """Testy pro create_renamed_zip()."""
+
+    def test_creates_valid_zip(self):
+        import zipfile, io
+        from modules.podklady import create_renamed_zip
+        files = [
+            {"data": b"fake-pdf-content", "filename": "Firma_ESM_05.03.2026.pdf"},
+            {"data": b"<svg>fake</svg>", "filename": "Firma_ESM_05.03.2026_grafická struktura.svg"},
+        ]
+        result = create_renamed_zip(files)
+        assert isinstance(result, bytes)
+        # Verify it's a valid ZIP
+        zf = zipfile.ZipFile(io.BytesIO(result))
+        names = zf.namelist()
+        assert len(names) == 2
+        assert "Firma_ESM_05.03.2026.pdf" in names
+        assert "Firma_ESM_05.03.2026_grafická struktura.svg" in names
+        assert zf.read("Firma_ESM_05.03.2026.pdf") == b"fake-pdf-content"
+
+    def test_empty_list_returns_valid_empty_zip(self):
+        import zipfile, io
+        from modules.podklady import create_renamed_zip
+        result = create_renamed_zip([])
+        assert isinstance(result, bytes)
+        zf = zipfile.ZipFile(io.BytesIO(result))
+        assert zf.namelist() == []
+
+
+# ===========================================================================
+# match_esm_uploads
+# ===========================================================================
+
+class TestMatchEsmUploads:
+    """Testy pro match_esm_uploads() – automatické přiřazení souborů."""
+
+    def test_vypis_matched_by_subjekt_id(self):
+        """Soubor 'vypis-898776.pdf' se přiřadí k firmě se subjektId 898776."""
+        from modules.podklady import match_esm_uploads
+        companies = [
+            {"nazev": "MatiDal", "ico": "03999840", "subjekt_id": "898776"},
+            {"nazev": "Firma B", "ico": "11111111", "subjekt_id": "123456"},
+        ]
+        result = match_esm_uploads(["vypis-898776.pdf"], companies)
+        assert len(result) == 1
+        assert result[0]["matched"] is True
+        assert result[0]["doc_type"] == "esm"
+        assert result[0]["company_idx"] == 0
+        assert "MatiDal" in result[0]["new_filename"]
+
+    def test_grafika_matched_by_suffix(self):
+        """grafickaStruktura.svg = first company, -2.svg = second company."""
+        from modules.podklady import match_esm_uploads
+        companies = [
+            {"nazev": "Firma A", "ico": "111", "subjekt_id": "100"},
+            {"nazev": "Firma B", "ico": "222", "subjekt_id": "200"},
+            {"nazev": "Firma C", "ico": "333", "subjekt_id": "300"},
+        ]
+        names = ["grafickaStruktura.svg", "grafickaStruktura-2.svg", "grafickaStruktura-3.svg"]
+        result = match_esm_uploads(names, companies)
+        assert all(r["matched"] for r in result)
+        assert result[0]["company_idx"] == 0
+        assert result[1]["company_idx"] == 1
+        assert result[2]["company_idx"] == 2
+        assert all(r["doc_type"] == "esm_grafika" for r in result)
+
+    def test_unrecognized_file(self):
+        """Nerozpoznaný soubor → matched=False."""
+        from modules.podklady import match_esm_uploads
+        companies = [{"nazev": "Firma", "ico": "111", "subjekt_id": "100"}]
+        result = match_esm_uploads(["random_document.pdf"], companies)
+        assert len(result) == 1
+        assert result[0]["matched"] is False
+        assert result[0]["new_filename"] is None
+
+    def test_mixed_files(self):
+        """Mix výpisů, grafik a nerozpoznaných souborů."""
+        from modules.podklady import match_esm_uploads
+        companies = [
+            {"nazev": "MatiDal", "ico": "039", "subjekt_id": "898776"},
+            {"nazev": "Easy", "ico": "040", "subjekt_id": "1059250"},
+        ]
+        names = [
+            "vypis-898776.pdf",
+            "vypis-1059250.pdf",
+            "grafickaStruktura.svg",
+            "grafickaStruktura-2.svg",
+            "unknown.txt",
+        ]
+        result = match_esm_uploads(names, companies)
+        assert result[0]["matched"] and result[0]["doc_type"] == "esm"
+        assert result[1]["matched"] and result[1]["doc_type"] == "esm"
+        assert result[2]["matched"] and result[2]["doc_type"] == "esm_grafika"
+        assert result[3]["matched"] and result[3]["doc_type"] == "esm_grafika"
+        assert not result[4]["matched"]

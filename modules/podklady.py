@@ -14,8 +14,10 @@ Architektonická volba – OR server-side, ESM browser-link:
 """
 
 import base64
+import io
 import re
 import time
+import zipfile
 from datetime import date
 from typing import Literal
 
@@ -237,7 +239,125 @@ def make_filename(
         "esm":         f"_ESM_{today}",
         "esm_grafika": f"_ESM_{today}_grafická struktura",
     }
-    return f"{safe_nazev}{labels[doc_type]}.pdf"
+    # ESM grafická struktura se stahuje jako SVG, ostatní jako PDF
+    ext = ".svg" if doc_type == "esm_grafika" else ".pdf"
+    return f"{safe_nazev}{labels[doc_type]}{ext}"
+
+
+# ---------------------------------------------------------------------------
+# ZIP s přejmenovanými soubory
+# ---------------------------------------------------------------------------
+
+
+def create_renamed_zip(files: list[dict]) -> bytes:
+    """Vytvoří ZIP archiv s přejmenovanými soubory.
+
+    Args:
+        files: Seznam slovníků s klíči ``data`` (bytes) a ``filename`` (str).
+               Každý slovník = jeden soubor v ZIP archivu.
+
+    Returns:
+        Celý ZIP soubor jako bytes (vhodné pro ``st.download_button``).
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in files:
+            zf.writestr(f["filename"], f["data"])
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Automatické přiřazení uploadnutých ESM souborů ke společnostem
+# ---------------------------------------------------------------------------
+
+# Pattern pro ESM výpis: server pojmenuje soubor „vypis-{subjektId}.pdf"
+_VYPIS_PATTERN = re.compile(r"vypis-(?:uplny-sm-)?(?:plny-sm-)?(?:sm-)?(?:.*?-)?(\d{4,})", re.IGNORECASE)
+# Pattern pro ESM grafiku: server pojmenuje „grafickaStruktura.svg" / „grafickaStruktura-2.svg" atd.
+_GRAFIKA_PATTERN = re.compile(r"grafick[aá]Struktura(?:-(\d+))?\.svg", re.IGNORECASE)
+
+
+def match_esm_uploads(
+    uploaded_names: list[str],
+    company_order: list[dict],
+) -> list[dict]:
+    """Automaticky přiřadí uploadnuté ESM soubory ke společnostem.
+
+    Strategie přiřazení:
+
+    1. **Výpisy** (``vypis-XXXXXX.pdf``): obsahují subjektId přímo v názvu
+       souboru → 100% spolehlivé přiřazení přes regex na subjektId.
+
+    2. **Grafiky** (``grafickaStruktura*.svg``): mají deduplikační suffix
+       od browseru (``-2``, ``-3``, …). Pořadí suffixu odpovídá pořadí
+       stahování → mapujeme na ``company_order`` index.
+       Soubor bez suffixu = první firma (index 0).
+
+    3. Nerozpoznané soubory → ``matched=False`` pro ruční přiřazení v UI.
+
+    Args:
+        uploaded_names: Názvy uploadnutých souborů (``UploadedFile.name``).
+        company_order:  Seznam ``{"nazev": str, "ico": str, "subjekt_id": str}``
+                        **v pořadí v jakém byly stahovány** (stejné jako JS).
+
+    Returns:
+        Seznam slovníků, jeden pro každý uploadnutý soubor::
+
+            {
+                "original_name": str,       # původní název souboru
+                "matched": bool,            # True pokud se přiřazení podařilo
+                "doc_type": "esm" | "esm_grafika" | None,
+                "company_idx": int | None,  # index do company_order
+                "new_filename": str | None, # navržený nový název (make_filename)
+            }
+    """
+    # Indexy: subjektId → pozice v company_order
+    sid_to_idx: dict[str, int] = {}
+    for i, c in enumerate(company_order):
+        sid = c.get("subjekt_id", "")
+        if sid:
+            sid_to_idx[sid] = i
+
+    result: list[dict] = []
+    for name in uploaded_names:
+        entry: dict = {"original_name": name, "matched": False,
+                       "doc_type": None, "company_idx": None, "new_filename": None}
+
+        # Zkusíme match jako výpis
+        m_v = _VYPIS_PATTERN.search(name)
+        if m_v:
+            sid_found = m_v.group(1)
+            idx = sid_to_idx.get(sid_found)
+            if idx is not None:
+                c = company_order[idx]
+                fn_base = c["nazev"] or c["ico"]
+                entry.update(
+                    matched=True, doc_type="esm", company_idx=idx,
+                    new_filename=make_filename(fn_base, "esm"),
+                )
+                result.append(entry)
+                continue
+
+        # Zkusíme match jako grafika
+        m_g = _GRAFIKA_PATTERN.search(name)
+        if m_g:
+            # Bez suffixu → index 0, suffix N → index N-1
+            suffix_str = m_g.group(1)
+            if suffix_str is None:
+                gidx = 0
+            else:
+                gidx = int(suffix_str) - 1   # -2.svg = 2. firma (index 1)
+            if 0 <= gidx < len(company_order):
+                c = company_order[gidx]
+                fn_base = c["nazev"] or c["ico"]
+                entry.update(
+                    matched=True, doc_type="esm_grafika", company_idx=gidx,
+                    new_filename=make_filename(fn_base, "esm_grafika"),
+                )
+                result.append(entry)
+                continue
+
+        result.append(entry)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -285,85 +405,49 @@ function dl(b64, fname) {{
 
 
 def bulk_open_esm_js(items: list[dict]) -> str:
-    """Vrátí HTML/JS snippet, který hromadně stáhne ESM dokumenty v prohlížeči.
+    """Vrátí HTML/JS snippet, který hromadně otevře ESM URL v prohlížeči.
 
-    Každý prvek ``items`` musí obsahovat klíče ``url`` (str) a ``filename``
-    (str – požadovaný název souboru, např. ``'MatiDal s.r.o._ESM_05.03.2026.pdf'``).
+    Dvoufázové stahování:
+      - **Fáze 1 – výpisy**: ``window.open`` s krátkým rozestupem (200ms).
+        Výpisy mají unikátní názvy ``vypis-{subjektId}.pdf`` – pořadí je
+        jedno, přiřazení v rename workflow je přes regex na subjektId.
+      - **Fáze 2 – grafiky**: ``window.open`` s velkým rozestupem (3000ms).
+        Grafiky sdílejí název ``grafickaStruktura.svg`` a browser přidává
+        dedup suffíxy ``-2``, ``-3`` … Velký rozestup zajistí správné
+        sekvenční stažení → suffix odpovídá pořadí firem.
 
-    Strategie (tři úrovně, od nejlepší po zálohu):
-
-    Pokus 1 – ``fetch`` s ``mode: 'no-cors'`` a ``credentials: 'include'``:
-      Browser odešle požadavek včetně session cookies bez CORS preflight.
-      Odpověď je "opaque" – JS nemůže číst hlavičky ani tělo, ale blob existuje.
-      ``URL.createObjectURL(blob)`` + ``<a download="název.pdf">`` zajistí
-      stažení se správným názvem souboru. Funguje i bez CORS hlaviček serveru.
-
-    Pokus 2 – ``fetch`` s ``mode: 'cors'`` a ``credentials: 'include'``:
-      Záloha pokud no-cors blob má nulovou velikost (vypršená session,
-      přesměrování na login stránku). Vyžaduje CORS hlavičky od serveru –
-      lokálně může projít, na Streamlit Cloud pravděpodobně ne.
-
-    Pokus 3 – ``window.open``:
-      Absolutní záloha. Název souboru určuje server přes Content-Disposition.
+    Název souboru při stažení určuje server (Content-Disposition).
+    Pro přejmenování na správné názvy slouží sekce
+    „Přejmenovat stažené ESM soubory" (upload-rename-ZIP workflow).
 
     Args:
-        items: Seznam ``{"url": str, "filename": str}`` slovníků.
+        items: Seznam ``{"url": str, "filename": str, "type": str}`` slovníků.
+               ``type`` je ``"vypis"`` nebo ``"grafika"``.
+               ``filename`` se v JS nepoužívá (jen pro kontext / rename).
     """
-    calls_parts = []
-    for i, item in enumerate(items):
+    # Rozdělit na výpisy a grafiky, zachovat pořadí
+    vypisy = [(i, item) for i, item in enumerate(items) if item.get("type") == "vypis"]
+    grafiky = [(i, item) for i, item in enumerate(items) if item.get("type") == "grafika"]
+
+    open_calls: list[str] = []
+    # Fáze 1: výpisy s krátkým rozestupem
+    for seq, (_orig_i, item) in enumerate(vypisy):
         url = item["url"]
-        fname = item["filename"].replace('"', "_")   # escape pro JS string
-        calls_parts.append(
-            f'  downloadEsmItem("{url}", "{fname}", {i * 300});'
+        delay_ms = seq * 200
+        open_calls.append(
+            f"  setTimeout(function(){{ window.open({url!r}, '_blank'); }}, {delay_ms});"
         )
-    calls = "\n".join(calls_parts)
+    # Fáze 2: grafiky s velkým rozestupem, start po konci fáze 1
+    phase2_start = len(vypisy) * 200 + 500   # 500ms mezera mezi fázemi
+    for seq, (_orig_i, item) in enumerate(grafiky):
+        url = item["url"]
+        delay_ms = phase2_start + seq * 3000
+        open_calls.append(
+            f"  setTimeout(function(){{ window.open({url!r}, '_blank'); }}, {delay_ms});"
+        )
+    calls = "\n".join(open_calls)
     return f"""
 <script>
-function downloadEsmItem(url, fname, delay) {{
-  setTimeout(function() {{
-
-    // Pokus 1: no-cors – posle cookies, blob je opaque ale jde stahnout pojmenovane
-    fetch(url, {{mode: 'no-cors', credentials: 'include'}})
-      .then(function(r) {{ return r.blob(); }})
-      .then(function(b) {{
-        if (b.size === 0) throw new Error('opaque blob je prazdny – session mozna vyprsela');
-        var a = document.createElement('a');
-        a.href = URL.createObjectURL(b);
-        a.download = fname;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function() {{
-          URL.revokeObjectURL(a.href);
-          document.body.removeChild(a);
-        }}, 2000);
-      }})
-      .catch(function() {{
-
-        // Pokus 2: cors s credentials – vyzaduje CORS hlavicky od serveru
-        fetch(url, {{mode: 'cors', credentials: 'include'}})
-          .then(function(r) {{
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.blob();
-          }})
-          .then(function(b) {{
-            var a = document.createElement('a');
-            a.href = URL.createObjectURL(b);
-            a.download = fname;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(function() {{
-              URL.revokeObjectURL(a.href);
-              document.body.removeChild(a);
-            }}, 2000);
-          }})
-          .catch(function() {{
-            // Pokus 3: absolutni zaloha – window.open, nazev urcuje server
-            window.open(url, '_blank');
-          }});
-      }});
-
-  }}, delay);
-}}
 {calls}
 </script>
 """
