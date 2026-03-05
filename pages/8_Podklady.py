@@ -92,14 +92,8 @@ tab_single, tab_bulk, tab_history = st.tabs([
 with tab_single:
     st.subheader("Stažení podkladů pro jednu společnost")
     st.caption(
-        "Zadejte IČO a název. Jedno tlačítko stáhne OR výpis (pojmenovaný) "
-        "a otevře ESM záložky. subjektId se doplní automaticky."
+        "Zadejte IČO a název společnosti. subjektId se dohledá automaticky."
     )
-
-    # Staging-key pattern: staging klíč se přenese do widget klíče PŘED renderováním widgetu.
-    # Nutné proto, že Streamlit zakazuje přímou modifikaci klíče po instantiaci widgetu.
-    if "_single_sid_pending" in st.session_state:
-        st.session_state["single_sid"] = st.session_state.pop("_single_sid_pending")
 
     col_ico, col_nazev = st.columns(2)
     with col_ico:
@@ -111,32 +105,28 @@ with tab_single:
             key="single_nazev",
         )
 
-    subjekt_id_single = st.text_input(
-        "subjektId (justice.cz) – doplní se automaticky, lze přepsat",
-        placeholder="898776",
-        key="single_sid",
-    )
-
     if st.button("📥 Stáhnout všechny podklady (OR + ESM)", key="btn_all_single", type="primary"):
         ico = ico_single.strip()
-        sid = subjekt_id_single.strip()
         nazev = nazev_single.strip()
 
         if not ico:
             st.error("Zadejte IČO.")
         else:
-            # ── 1. Auto-lookup subjektId pokud chybí ──────────────────────
+            # ── 1. subjektId: zkusíme nejprve DB (uložené z minula), pak justice.cz ──
+            clients_list = get_clients(active_only=False)
+            sid = next(
+                (c.get("subjekt_id") or "" for c in clients_list if c["ico"] == ico),
+                "",
+            )
             if not sid:
                 with st.spinner("Hledám subjektId v justice.cz…"):
                     sid = lookup_subjekt_id(ico) or ""
                 if sid:
-                    # Uložíme zpět do formuláře přes staging klíč (viz výše)
-                    st.session_state["_single_sid_pending"] = sid
                     upsert_client_subjekt_id(ico, sid)
                 else:
                     st.error(
-                        "subjektId nebylo nalezeno na justice.cz. "
-                        "Zadejte ho ručně do pole výše."
+                        "subjektId nebylo nalezeno v justice.cz. "
+                        "Zkontrolujte IČO nebo přidejte subjekt ručně přes záložku Hromadné zpracování."
                     )
 
             if sid:
@@ -155,19 +145,15 @@ with tab_single:
                 log_audit("Podklady", "all_download", ico=ico, entity_name=nazev,
                           details=f"sid={sid} or={'ok' if pdf_bytes else or_msg}")
 
-                # ── 4. JS injekce – OR data-URI (pojmenovaně) + ESM fetch ─
-                # OR: máme bytes na serveru → base64 data-URI → a.download = vlastní název ✅
-                # ESM: cross-origin fetch s credentials → pokud CORS dovolí, blob + a.download;
-                #      jinak fallback window.open (název určuje server přes Content-Disposition)
+                # ── 4. JS: OR jako base64 data-URI + ESM fetch/window.open ─
                 js_parts: list[str] = []
                 if pdf_bytes:
                     js_parts.append(bulk_download_js(
                         [{"data": pdf_bytes, "filename": make_filename(fn_base, "or")}]
                     ))
-
                 js_parts.append(bulk_open_esm_js([
-                    {"url": esm_vypis_url(sid),    "filename": make_filename(fn_base, "esm")},
-                    {"url": esm_grafika_url(sid),   "filename": make_filename(fn_base, "esm_grafika")},
+                    {"url": esm_vypis_url(sid),   "filename": make_filename(fn_base, "esm")},
+                    {"url": esm_grafika_url(sid),  "filename": make_filename(fn_base, "esm_grafika")},
                 ]))
                 components.html("\n".join(js_parts), height=0)
 
