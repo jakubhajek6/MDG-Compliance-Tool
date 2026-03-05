@@ -50,8 +50,26 @@ CREATE TABLE IF NOT EXISTS clients (
     ico TEXT UNIQUE NOT NULL,
     nazev TEXT,
     added_date TEXT,
-    monitoring_active INTEGER DEFAULT 1
+    monitoring_active INTEGER DEFAULT 1,
+    subjekt_id TEXT              -- justice.cz interní ID pro OR/ESM výpisy
 );
+
+-- Podklady ESM – běhy stahování (OR výpis, ESM, ESM grafika)
+CREATE TABLE IF NOT EXISTS podklady_runs (
+    id INTEGER PRIMARY KEY,
+    run_date TEXT NOT NULL,       -- ISO timestamp
+    ico TEXT NOT NULL,
+    subjekt_id TEXT,
+    nazev TEXT,
+    or_status TEXT DEFAULT 'pending',       -- pending / ok / error
+    esm_status TEXT DEFAULT 'pending',
+    esm_grafika_status TEXT DEFAULT 'pending',
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_podklady_runs_ico     ON podklady_runs(ico);
+CREATE INDEX IF NOT EXISTS idx_podklady_runs_date    ON podklady_runs(run_date);
+CREATE INDEX IF NOT EXISTS idx_podklady_runs_ico_date ON podklady_runs(ico, run_date);
 
 -- AML kontroly – audit trail
 CREATE TABLE IF NOT EXISTS aml_checks (
@@ -118,4 +136,5 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_log_module    ON audit_log(module);
 CREATE INDEX IF NOT EXISTS idx_audit_log_module ON audit_log(module);

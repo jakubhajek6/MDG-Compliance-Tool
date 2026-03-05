@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+### Přidáno
+- **Modul 8 – Stažení podkladů ESM** (`pages/8_Podklady.py`, `modules/podklady.py`)
+  - Automatický server-side download PDF výpisu z OR (veřejný endpoint or.justice.cz)
+  - Auto-lookup justice.cz `subjektId` z IČO přes HTML scraping OR výsledkové stránky
+  - Hromadné zpracování ze seznamu klientů nebo nahráním Excelu (IČO + subjektId)
+  - Hromadné stažení OR PDF přes JS data-URI trigger (no ZIP, 1 soubor na společnost)
+  - Hromadné otevření ESM odkazů (`window.open` bulk) pro výpis + grafickou strukturu
+  - Ruční potvrdí ✅/❌ stavu ESM stažení uložené do SQLite
+  - Retry mechanismus pro nespěšné OR stažení bez nahrávání Excelu znovu
+  - Záložka Historie s filtrací dle klienta/IČO
+  - Integrace s tabulkou `clients` (uložení a načtení `subjektId`)
+- Nová DB tabulka `podklady_runs` se třemi status sloupci (OR, ESM výpis, ESM grafika)
+- Nový sloupec `subjekt_id TEXT` v tabulce `clients`
+- Nové DB helpery: `save_podklady_run`, `update_podklady_status`, `get_podklady_history`, `upsert_client_subjekt_id`
+- Modul 8 přidán do sidebar navigace (hned za ESM)
+
+### Opraveno
+- `extract_company_info`: `datum_vzniku` přestaňovalo úspěšně nastavenou hodnotu z RES přiřazením prázdného stringu z VR
+- `extract_company_info`: `predmet_podnikani` používal zastaralou cestu `predmetyPodnikani`; aktuální ARES VR vrací data v `cinnosti.predmetPodnikani`
+- `extract_company_info`: `pravniForma` kód (např. `"112"`) přeložen na český název přes číselník `PRAVNI_FORMY`
+
 ## [1.0.0] - 2026-03-03
 
 ### Nová aplikace: MDG Compliance Tool

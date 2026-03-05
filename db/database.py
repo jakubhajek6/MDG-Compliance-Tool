@@ -19,7 +19,7 @@ def get_db_path() -> str:
 
 
 def init_db():
-    """Inicializuje databázi – vytvoří tabulky dle schema.sql."""
+    """Inicializuje databázi – vytvoří tabulky dle schema.sql a spustí additivní migrace."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     try:
@@ -27,6 +27,13 @@ def init_db():
             sql = SCHEMA_PATH.read_text(encoding="utf-8")
             conn.executescript(sql)
             conn.commit()
+        # Additivní migrace – přidají sloupec pokud ještě neexistuje.
+        # SQLite nepodporuje ADD COLUMN IF NOT EXISTS, proto zachytíme OperationalError.
+        try:
+            conn.execute("ALTER TABLE clients ADD COLUMN subjekt_id TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # sloupec již existuje
     finally:
         conn.close()
 
@@ -238,5 +245,101 @@ def get_latest_risk_score(ico: str) -> Optional[dict]:
             result["factors"] = json.loads(result["factors_json"])
             return result
         return None
+    finally:
+        conn.close()
+
+
+# --- Podklady ESM ---
+
+# Povolené hodnoty pro sloupce stavu – whitelist proti SQL injection.
+_PODKLADY_STATUS_FIELDS = {"or_status", "esm_status", "esm_grafika_status"}
+_PODKLADY_STATUS_VALUES = {"pending", "ok", "error"}
+
+
+def upsert_client_subjekt_id(ico: str, subjekt_id: str) -> None:
+    """Uloží nebo aktualizuje subjektId (justice.cz interní ID) ke klientovi.
+
+    Pokud klient v tabulce clients ještě neexistuje, nic neprovede –
+    subjektId se ukládá pouze k existujícím klientům.
+    """
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE clients SET subjekt_id = ? WHERE ico = ?",
+            (subjekt_id, ico)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_podklady_run(ico: str, subjekt_id: str, nazev: str) -> int:
+    """Vytvoří nový záznam běhu stahování podkladů a vrátí jeho ``id``.
+
+    Všechny tři statusy jsou inicializovány na ``'pending'``.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """INSERT INTO podklady_runs (run_date, ico, subjekt_id, nazev,
+               or_status, esm_status, esm_grafika_status)
+               VALUES (?, ?, ?, ?, 'pending', 'pending', 'pending')""",
+            (datetime.now().isoformat(timespec="seconds"), ico, subjekt_id, nazev)
+        )
+        conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+    finally:
+        conn.close()
+
+
+def update_podklady_status(run_id: int, field: str, status: str) -> None:
+    """Aktualizuje jeden status sloupec záznamu v ``podklady_runs``.
+
+    Args:
+        run_id: ID záznamu v podklady_runs.
+        field:  Název sloupce – musí být jedním z ``or_status``, ``esm_status``,
+                ``esm_grafika_status``.
+        status: Nová hodnota – ``'pending'``, ``'ok'``, nebo ``'error'``.
+
+    Raises:
+        ValueError: Pokud ``field`` nebo ``status`` nejsou v povoleném whitelistu.
+    """
+    if field not in _PODKLADY_STATUS_FIELDS:
+        raise ValueError(f"Nepovolený field: {field!r}. Povoleno: {_PODKLADY_STATUS_FIELDS}")
+    if status not in _PODKLADY_STATUS_VALUES:
+        raise ValueError(f"Nepovolený status: {status!r}. Povoleno: {_PODKLADY_STATUS_VALUES}")
+    conn = get_connection()
+    try:
+        # field je ze striktního whitelistu, parametrická substituce pro identifikátory
+        # v sqlite3 není možná – literal safe interpolation je zde záměrná a bezpečná.
+        conn.execute(
+            f"UPDATE podklady_runs SET {field} = ? WHERE id = ?",  # noqa: S608
+            (status, run_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_podklady_history(ico: str = "", limit: int = 50) -> list[dict]:
+    """Vrátí historii běhů stahování podkladů.
+
+    Args:
+        ico:   Pokud zadáno, filtruje záznamy pro jedno IČO.
+        limit: Maximální počet vrácených záznamů (seřazeno od nejnovějšího).
+    """
+    conn = get_connection()
+    try:
+        if ico:
+            rows = conn.execute(
+                "SELECT * FROM podklady_runs WHERE ico = ? ORDER BY run_date DESC LIMIT ?",
+                (ico, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM podklady_runs ORDER BY run_date DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

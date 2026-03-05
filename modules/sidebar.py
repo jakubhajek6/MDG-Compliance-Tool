@@ -57,6 +57,7 @@ def render_sidebar() -> None:
         # so no manual "active" state management is needed.
         st.page_link("app.py",                 label="🏠 Domů")
         st.page_link("pages/1_ESM.py",         label="📋 ESM – Evidence skutečných majitelů")
+        st.page_link("pages/8_Podklady.py",    label="📄 Stažení podkladů ESM")
         st.page_link("pages/3_AML.py",         label="🔍 AML kontroly")
         st.page_link("pages/7_Riziko.py",      label="⚖️ Riziková klasifikace")
         st.page_link("pages/5_Smlouvy.py",     label="📝 Návrh smluvní dokumentace")
